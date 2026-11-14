@@ -1,0 +1,13 @@
+node_modules/
+dist/
+Sona-win/
+Sona.app/
+release/
+native/windows/bin/
+native/windows/obj/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+.env
+.env.*

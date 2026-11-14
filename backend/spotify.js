@@ -1,0 +1,367 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+const CACHE_BASE =
+  process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Sona', 'Caches')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Caches', 'Sona')
+      : path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'Sona');
+const CACHE_DIR = CACHE_BASE;
+fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+const LISTENERS_CACHE_FILE = path.join(CACHE_DIR, 'kworb-listeners.json');
+const TTL_MS = 6 * 60 * 60 * 1000;
+
+const GOOGLEBOT_UA = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+
+let listenersIndex = null; // Map<normalizedName, { spotifyId, name, listenersNum, listenersText }>
+let listenersPromise = null;
+
+const artistIdCache = new Map(); // normalizedName -> spotifyId | null
+const artistPageCache = new Map(); // spotifyId -> { monthlyListeners, avatarUrl, expires }
+const artistSongsCache = new Map(); // spotifyId -> { songs: Map<normTitle, { title, streams }>, rawList: [], expires }
+const deezerAvatarCache = new Map(); // normalizedName -> url | null
+
+function normalizeName(str) {
+  return (str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeTrackTitle(str) {
+  return (str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\((feat\.|ft\.|with|remaster|remastered|official|audio|video|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\s*-\s*(remaster|remastered|single version|album version|radio edit|mono|stereo|\d{4}\s*remaster).*$/i, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatCompactListeners(num) {
+  if (!num || !Number.isFinite(num)) return '';
+  if (num >= 1_000_000) {
+    const m = num / 1_000_000;
+    return `${m >= 100 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, '')}M monthly listeners`;
+  }
+  if (num >= 1_000) {
+    return `${Math.round(num / 1_000)}K monthly listeners`;
+  }
+  return `${num.toLocaleString()} monthly listeners`;
+}
+
+async function loadListenersIndex({ forceRefresh = false } = {}) {
+  if (!forceRefresh && listenersIndex) return listenersIndex;
+  if (!forceRefresh && listenersPromise) return listenersPromise;
+
+  listenersPromise = (async () => {
+    // Try disk cache first for 0ms startup
+    if (!forceRefresh) {
+      try {
+        if (fs.existsSync(LISTENERS_CACHE_FILE)) {
+          const stat = fs.statSync(LISTENERS_CACHE_FILE);
+          if (Date.now() - stat.mtimeMs < TTL_MS) {
+            const arr = JSON.parse(fs.readFileSync(LISTENERS_CACHE_FILE, 'utf8'));
+            const map = new Map();
+            for (const item of arr) {
+              map.set(normalizeName(item.name), item);
+            }
+            listenersIndex = map;
+            return map;
+          }
+        }
+      } catch {}
+    }
+
+    const map = new Map();
+    const arr = [];
+    try {
+      const res = await fetch('https://kworb.net/spotify/listeners.html');
+      if (res.ok) {
+        const html = await res.text();
+        const matches = html.matchAll(
+          /href="artist\/([a-zA-Z0-9]+)_songs\.html">([^<]+)<\/a><\/div><\/td><td[^>]*>([\d,]+)<\/td>/g
+        );
+        for (const m of matches) {
+          const spotifyId = m[1];
+          const name = m[2].replace(/&amp;/g, '&').replace(/&#039;/g, "'").replace(/&quot;/g, '"').trim();
+          const listenersNum = Number(m[3].replace(/,/g, '')) || 0;
+          const entry = {
+            spotifyId,
+            name,
+            listenersNum,
+            listenersText: formatCompactListeners(listenersNum),
+          };
+          arr.push(entry);
+          const key = normalizeName(name);
+          if (!map.has(key)) map.set(key, entry);
+        }
+        if (arr.length > 0) {
+          try {
+            fs.writeFileSync(LISTENERS_CACHE_FILE, JSON.stringify(arr), 'utf8');
+          } catch {}
+        }
+      }
+    } catch {}
+
+    listenersIndex = map;
+    return map;
+  })().finally(() => {
+    listenersPromise = null;
+  });
+
+  return listenersPromise;
+}
+
+async function findSpotifyArtistId(artistName) {
+  const key = normalizeName(artistName);
+  if (!key) return null;
+
+  const idx = await loadListenersIndex();
+  const hit = idx.get(key);
+  if (hit) return hit.spotifyId;
+
+  if (artistIdCache.has(key)) return artistIdCache.get(key);
+
+  let foundId = null;
+  try {
+    const q = encodeURIComponent(`artist:"${artistName}"`);
+    const mb = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${q}&fmt=json&limit=3`, {
+      headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' },
+    }).then((r) => (r.ok ? r.json() : null));
+
+    const candidate = mb?.artists?.[0];
+    if (candidate?.id) {
+      const detail = await fetch(
+        `https://musicbrainz.org/ws/2/artist/${candidate.id}?inc=url-rels&fmt=json`,
+        { headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' } }
+      ).then((r) => (r.ok ? r.json() : null));
+
+      const spRel = detail?.relations?.find((r) => r.url?.resource?.includes('open.spotify.com/artist/'));
+      const m = spRel?.url?.resource?.match(/artist\/([a-zA-Z0-9]+)/);
+      if (m) foundId = m[1];
+    }
+  } catch {}
+
+  artistIdCache.set(key, foundId);
+  return foundId;
+}
+
+async function fetchSpotifyArtistPage(spotifyId) {
+  if (!spotifyId) return { monthlyListeners: '', avatarUrl: '' };
+  const cached = artistPageCache.get(spotifyId);
+  if (cached && cached.expires > Date.now()) return cached;
+
+  let monthlyListeners = '';
+  let avatarUrl = '';
+
+  try {
+    const res = await fetch(`https://open.spotify.com/artist/${spotifyId}`, {
+      headers: { 'User-Agent': GOOGLEBOT_UA },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const desc =
+        html.match(/name="description"\s+content="([^"]+)"/)?.[1] ||
+        html.match(/content="([^"]+)"\s+name="description"/)?.[1] ||
+        '';
+      const mlMatch = desc.match(/([\d.,]+[KMB]?\s+monthly listeners)/i);
+      if (mlMatch) monthlyListeners = mlMatch[1];
+
+      const img =
+        html.match(/property="og:image"\s+content="([^"]+)"/)?.[1] ||
+        html.match(/content="([^"]+)"\s+property="og:image"/)?.[1] ||
+        '';
+      if (img && img.includes('i.scdn.co/image/') && !img.includes('download-page-image')) {
+        avatarUrl = img;
+      }
+    }
+  } catch {}
+
+  const result = { monthlyListeners, avatarUrl, expires: Date.now() + TTL_MS };
+  artistPageCache.set(spotifyId, result);
+  return result;
+}
+
+async function fetchDeezerArtistAvatar(artistName) {
+  const key = normalizeName(artistName);
+  if (!key) return '';
+  if (deezerAvatarCache.has(key)) return deezerAvatarCache.get(key) || '';
+
+  let url = '';
+  try {
+    const res = await fetch(
+      `https://api.deezer.com/search/artist?q=${encodeURIComponent(artistName)}&limit=3`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const exact =
+        (data.data || []).find((a) => normalizeName(a.name) === key) || (data.data || [])[0];
+      const pic = exact?.picture_xl || exact?.picture_big || exact?.picture_medium || '';
+      if (pic && !pic.includes('default')) url = pic;
+    }
+  } catch {}
+
+  deezerAvatarCache.set(key, url);
+  return url;
+}
+
+async function fetchArtistSongsStreams(spotifyId) {
+  if (!spotifyId) return null;
+  const cached = artistSongsCache.get(spotifyId);
+  if (cached && cached.expires > Date.now()) return cached;
+
+  const songs = new Map();
+  const rawList = [];
+  try {
+    const res = await fetch(`https://kworb.net/spotify/artist/${spotifyId}_songs.html`);
+    if (res.ok) {
+      const html = await res.text();
+      const rows = html.matchAll(
+        /<tr><td class="text"><div><a[^>]*>([^<]+)<\/a><\/div><\/td><td>([\d,]+)<\/td>/g
+      );
+      for (const r of rows) {
+        const title = r[1]
+          .replace(/&amp;/g, '&')
+          .replace(/&#039;/g, "'")
+          .replace(/&quot;/g, '"')
+          .trim();
+        const streams = Number(r[2].replace(/,/g, '')) || 0;
+        if (!title || !streams) continue;
+        rawList.push({ title, norm: normalizeTrackTitle(title), streams });
+        const norm = normalizeTrackTitle(title);
+        if (norm && (!songs.has(norm) || songs.get(norm).streams < streams)) {
+          songs.set(norm, { title, streams });
+        }
+      }
+    }
+  } catch {}
+
+  const entry = { songs, rawList, expires: Date.now() + TTL_MS };
+  artistSongsCache.set(spotifyId, entry);
+  return entry;
+}
+
+function matchStreamCount(trackTitle, artistSongsEntry) {
+  if (!artistSongsEntry || !trackTitle) return null;
+  const norm = normalizeTrackTitle(trackTitle);
+  if (!norm) return null;
+
+  const exact = artistSongsEntry.songs.get(norm);
+  if (exact) return exact.streams;
+
+  // Fuzzy prefix/substring match (prefer highest stream match)
+  let best = null;
+  for (const item of artistSongsEntry.rawList) {
+    if (!item.norm) continue;
+    if (item.norm === norm || item.norm.startsWith(norm) || norm.startsWith(item.norm)) {
+      if (!best || item.streams > best.streams) best = item;
+    }
+  }
+  return best ? best.streams : null;
+}
+
+async function getArtistSpotifyBundle(artistName, { forceRefresh = false } = {}) {
+  if (forceRefresh) {
+    artistPageCache.clear();
+    artistSongsCache.clear();
+  }
+  const idx = await loadListenersIndex({ forceRefresh });
+  const key = normalizeName(artistName);
+  const idxEntry = idx.get(key) || null;
+  const spotifyId = idxEntry?.spotifyId || (await findSpotifyArtistId(artistName));
+
+  const [pageInfo, deezerAvatar, songsEntry] = await Promise.all([
+    spotifyId ? fetchSpotifyArtistPage(spotifyId) : Promise.resolve({ monthlyListeners: '', avatarUrl: '' }),
+    fetchDeezerArtistAvatar(artistName),
+    spotifyId ? fetchArtistSongsStreams(spotifyId) : Promise.resolve(null),
+  ]);
+
+  const monthlyListeners = pageInfo.monthlyListeners || idxEntry?.listenersText || '';
+  const avatarUrl = pageInfo.avatarUrl || deezerAvatar || '';
+
+  return {
+    spotifyId,
+    monthlyListeners,
+    avatarUrl,
+    deezerAvatar,
+    songsEntry,
+  };
+}
+
+async function resolveAvatarForArtist(artistName, fallbackUrl = '') {
+  const key = normalizeName(artistName);
+  if (key) {
+    const idx = await loadListenersIndex();
+    const hit = idx.get(key);
+    if (hit?.spotifyId) {
+      const page = await fetchSpotifyArtistPage(hit.spotifyId);
+      if (page.avatarUrl) return page.avatarUrl;
+    }
+    const dz = await fetchDeezerArtistAvatar(artistName);
+    if (dz) return dz;
+  }
+  return fallbackUrl || '';
+}
+
+async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = '') {
+  if (!Array.isArray(tracks) || tracks.length === 0) return tracks;
+
+  // Collect unique primary artist names (up to 6 artists per request to stay blazing fast)
+  const artistNames = [];
+  for (const t of tracks) {
+    const primary = (t.artists?.[0]?.name || t.artist?.split(',')[0] || fallbackArtistName || '').trim();
+    if (primary && !artistNames.includes(primary)) artistNames.push(primary);
+    if (artistNames.length >= 6) break;
+  }
+
+  const artistMap = new Map();
+  await Promise.all(
+    artistNames.map(async (name) => {
+      try {
+        const idx = await loadListenersIndex();
+        const spotifyId = idx.get(normalizeName(name))?.spotifyId || (await findSpotifyArtistId(name));
+        if (spotifyId) {
+          const entry = await fetchArtistSongsStreams(spotifyId);
+          if (entry) artistMap.set(normalizeName(name), entry);
+        }
+      } catch {}
+    })
+  );
+
+  return tracks.map((t) => {
+    const primary = normalizeName(t.artists?.[0]?.name || t.artist?.split(',')[0] || fallbackArtistName || '');
+    const entry = artistMap.get(primary);
+    const streams = matchStreamCount(t.title, entry);
+    return streams ? { ...t, spotifyStreams: streams } : t;
+  });
+}
+
+// Kick off index load immediately on require
+loadListenersIndex().catch(() => {});
+
+function clearStatCaches() {
+  listenersIndex = null;
+  artistPageCache.clear();
+  artistSongsCache.clear();
+}
+
+module.exports = {
+  loadListenersIndex,
+  getArtistSpotifyBundle,
+  resolveAvatarForArtist,
+  enrichTracksWithSpotifyStreams,
+  matchStreamCount,
+  fetchDeezerArtistAvatar,
+  clearStatCaches,
+};

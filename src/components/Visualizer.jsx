@@ -1,0 +1,290 @@
+import React, { useEffect, useRef } from 'react';
+import { usePlayer } from '../context/PlayerContext';
+import { usePanMotion } from '../utils/motion';
+
+export default function Visualizer({ height = 56, barCount = 42, className = '' }) {
+  const canvasRef = useRef(null);
+  const { analyserRef, isPlaying, accentRgb, library } = usePlayer();
+  const prefs = library?.preferences || {};
+  const panningWaveform = Boolean(prefs.panningWaveform);
+  const panFrequency = Number(prefs.panFrequency ?? 0.6);
+  const panAmplitude = Number(prefs.panAmplitude ?? 14);
+  const panRotation = Boolean(prefs.panRotation);
+  const visualizerStyle = prefs.visualizerStyle || 'bars';
+  const visualizerColor = prefs.visualizerColor || 'accent';
+  const visualizerPeakDelay = Number(prefs.visualizerPeakDelay ?? 1.2);
+  const panRef = usePanMotion(panningWaveform, panFrequency, panAmplitude, isPlaying, panRotation);
+
+  const liveRef = useRef({
+    isPlaying,
+    accentRgb,
+    panningWaveform,
+    panFrequency,
+    panAmplitude,
+    visualizerStyle,
+    visualizerColor,
+    visualizerPeakDelay,
+  });
+  liveRef.current = {
+    isPlaying,
+    accentRgb,
+    panningWaveform,
+    panFrequency,
+    panAmplitude,
+    visualizerStyle,
+    visualizerColor,
+    visualizerPeakDelay,
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let rafId = 0;
+    let phase = 0;
+    let panPhase = 0;
+    let lastTs = performance.now();
+    let width = canvas.clientWidth || 320;
+    let curHeight = canvas.clientHeight || height;
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let cachedGrad = null;
+    let cachedGradKey = '';
+
+    const peaks = new Float32Array(barCount);
+    const smoothBars = new Float32Array(barCount);
+    for (let i = 0; i < barCount; i++) {
+      const c = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.4;
+      smoothBars[i] = (0.18 + 0.14 * Math.sin(i * 0.55)) * c;
+      peaks[i] = smoothBars[i];
+    }
+    let bins = null;
+
+    const syncSize = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = canvas.clientWidth || width;
+      curHeight = canvas.clientHeight || height;
+      const pw = Math.max(1, Math.round(width * dpr));
+      const ph = Math.max(1, Math.round(curHeight * dpr));
+      if (canvas.width !== pw || canvas.height !== ph) {
+        canvas.width = pw;
+        canvas.height = ph;
+      }
+      cachedGrad = null;
+    };
+
+    syncSize();
+    const ro = new ResizeObserver(syncSize);
+    ro.observe(canvas);
+
+    const render = (now) => {
+      const dt = Math.min(0.05, Math.max(0.0005, (now - lastTs) / 1000));
+      lastTs = now;
+
+      const {
+        isPlaying: playing,
+        accentRgb: rgb,
+        panningWaveform: panOn,
+        panFrequency: pFreq,
+        panAmplitude: pAmp,
+        visualizerStyle: styleMode,
+        visualizerColor: colorMode,
+        visualizerPeakDelay: peakDelay,
+      } = liveRef.current;
+
+      const w = width;
+      const h = curHeight;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const analyser = analyserRef.current;
+      let hasSignal = false;
+      if (analyser && playing) {
+        if (!bins || bins.length !== analyser.frequencyBinCount) {
+          bins = new Uint8Array(analyser.frequencyBinCount);
+        }
+        analyser.getByteFrequencyData(bins);
+        for (let k = 0; k < bins.length; k++) {
+          if (bins[k] > 2) {
+            hasSignal = true;
+            break;
+          }
+        }
+      }
+
+      const gradKey = `${w}:${h}:${rgb}:${colorMode}`;
+      if (!cachedGrad || cachedGradKey !== gradKey) {
+        if (colorMode === 'spectrum') {
+          const g = ctx.createLinearGradient(0, 0, w, 0);
+          g.addColorStop(0, 'rgba(52, 211, 153, 0.95)');
+          g.addColorStop(0.35, 'rgba(56, 189, 248, 0.95)');
+          g.addColorStop(0.7, 'rgba(168, 85, 247, 0.95)');
+          g.addColorStop(1, 'rgba(244, 114, 182, 0.95)');
+          cachedGrad = g;
+        } else if (colorMode === 'white') {
+          const g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+          g.addColorStop(1, 'rgba(255, 255, 255, 0.16)');
+          cachedGrad = g;
+        } else {
+          const g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, `rgba(${rgb}, 1)`);
+          g.addColorStop(1, `rgba(${rgb}, 0.16)`);
+          cachedGrad = g;
+        }
+        cachedGradKey = gradKey;
+      }
+
+      // Freeze wave shape & panning spotlight in exact paused position when paused; resume smoothly on play
+      const smoothFactor = 1 - Math.exp(-dt * 24);
+      const peakDecay = dt / Math.max(0.1, Number(peakDelay) || 1.2);
+      const gap = 3;
+      const barW = Math.max(2, (w - gap * (barCount - 1)) / barCount);
+
+      if (playing) {
+        phase += dt * 3.6;
+        panPhase += dt * pFreq * Math.PI * 2;
+      }
+
+      const ampNorm = Math.min(1, pAmp / 24);
+      const panCenter = panOn ? 0.5 + 0.42 * ampNorm * Math.sin(panPhase) : 0.5;
+
+      ctx.fillStyle = cachedGrad;
+      if (styleMode === 'wave') {
+        for (let i = 0; i < barCount; i++) {
+          if (playing) {
+            let target;
+            if (hasSignal) {
+              const binIdx = Math.min(bins.length - 1, Math.floor((i / barCount) * (bins.length * 0.72)));
+              target = bins[binIdx] / 255;
+            } else {
+              const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
+              target =
+                (0.35 +
+                  0.24 * Math.sin(phase * 1.4 + i * 0.42) +
+                  0.16 * Math.cos(phase * 2.1 - i * 0.28)) *
+                centerFactor;
+            }
+            if (panOn) {
+              const dist = Math.abs(i / Math.max(1, barCount - 1) - panCenter);
+              const spotlight = Math.max(0.35, 1.28 - dist * (0.9 + ampNorm * 0.6));
+              target = Math.min(1, target * spotlight);
+            }
+            smoothBars[i] += (target - smoothBars[i]) * smoothFactor;
+          }
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        for (let i = 0; i < barCount; i++) {
+          const x = (i / Math.max(1, barCount - 1)) * w;
+          const y = h - Math.max(4, smoothBars[i] * (h - 8)) - 2;
+          if (i === 0) ctx.moveTo(x, y);
+          else {
+            const prevX = ((i - 1) / Math.max(1, barCount - 1)) * w;
+            const prevY = h - Math.max(4, smoothBars[i - 1] * (h - 8)) - 2;
+            const cx = (prevX + x) / 2;
+            ctx.quadraticCurveTo(prevX, prevY, cx, (prevY + y) / 2);
+          }
+        }
+        const lastY = h - Math.max(4, smoothBars[barCount - 1] * (h - 8)) - 2;
+        ctx.lineTo(w, lastY);
+        ctx.strokeStyle = cachedGrad;
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.globalAlpha = 0.95;
+        ctx.stroke();
+
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.globalAlpha = 0.22;
+        ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        rafId = requestAnimationFrame(render);
+        return;
+      }
+
+      for (let i = 0; i < barCount; i++) {
+        if (playing) {
+          let target;
+          if (hasSignal) {
+            const binIdx = Math.min(bins.length - 1, Math.floor((i / barCount) * (bins.length * 0.72)));
+            target = bins[binIdx] / 255;
+          } else {
+            const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
+            target =
+              (0.35 +
+                0.24 * Math.sin(phase * 1.4 + i * 0.42) +
+                0.16 * Math.cos(phase * 2.1 - i * 0.28)) *
+              centerFactor;
+          }
+
+          if (panOn) {
+            const dist = Math.abs(i / Math.max(1, barCount - 1) - panCenter);
+            const spotlight = Math.max(0.35, 1.28 - dist * (0.9 + ampNorm * 0.6));
+            target = Math.min(1, target * spotlight);
+          }
+
+          smoothBars[i] += (target - smoothBars[i]) * smoothFactor;
+          const ratio = smoothBars[i];
+          if (ratio > peaks[i]) peaks[i] = ratio;
+          else peaks[i] = Math.max(ratio, peaks[i] - peakDecay);
+        }
+
+        const ratio = smoothBars[i];
+        const x = i * (barW + gap);
+        ctx.globalAlpha = 0.42 + ratio * 0.58;
+        ctx.beginPath();
+
+        if (styleMode === 'mirror') {
+          const barH = Math.max(4, ratio * (h - 6));
+          const y = (h - barH) / 2;
+          ctx.roundRect(x, y, barW, barH, Math.min(barW / 2, 4));
+          ctx.fill();
+        } else if (styleMode === 'minimal') {
+          const dotH = Math.max(3, Math.min(barW, 5));
+          const y = Math.max(2, h - 4 - ratio * (h - 10) - dotH / 2);
+          ctx.roundRect(x, y, barW, dotH, dotH / 2);
+          ctx.fill();
+        } else {
+          const barH = Math.max(3, ratio * (h - 6));
+          const y = h - barH;
+          ctx.roundRect(x, y, barW, barH, Math.min(barW / 2, 4));
+          ctx.fill();
+        }
+      }
+
+      // Draw luminous peak caps for classic bars
+      if (styleMode === 'bars') {
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < barCount; i++) {
+          const x = i * (barW + gap);
+          const peakY = Math.max(0, h - Math.max(4, peaks[i] * (h - 6)) - 3);
+          ctx.globalAlpha = 0.22 + peaks[i] * 0.45;
+          ctx.beginPath();
+          ctx.roundRect(x, peakY, barW, 2, 1);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      rafId = requestAnimationFrame(render);
+    };
+
+    rafId = requestAnimationFrame(render);
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
+  }, [analyserRef, barCount, height]);
+
+  return (
+    <div ref={panRef} className="w-full will-change-transform">
+      <canvas ref={canvasRef} style={{ height }} className={`w-full block ${className}`} />
+    </div>
+  );
+}
