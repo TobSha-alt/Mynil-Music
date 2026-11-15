@@ -239,15 +239,8 @@ class StreamResolver {
     return p;
   }
 
-  /**
-   * Remuxes YouTube's fragmented DASH m4a into a clean faststart .m4a container.
-   * Fixes macOS AVFoundation/WKWebView reading double (2x) duration on DASH audio.
-   */
-  async getFastAudioFile(videoId) {
+  getCachedAudioFile(videoId) {
     if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) return null;
-    const ffmpeg = findFfmpeg();
-    if (!ffmpeg) return null;
-
     const finalPath = path.join(AUDIO_DISK_CACHE_DIR, `${videoId}.m4a`);
     if (fs.existsSync(finalPath)) {
       try {
@@ -258,6 +251,22 @@ class StreamResolver {
         }
       } catch {}
     }
+    return null;
+  }
+
+  /**
+   * Remuxes YouTube's fragmented DASH m4a into a clean faststart .m4a container.
+   * Fixes macOS AVFoundation/WKWebView reading double (2x) duration on DASH audio.
+   */
+  async getFastAudioFile(videoId) {
+    if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) return null;
+    const existing = this.getCachedAudioFile(videoId);
+    if (existing) return existing;
+
+    const ffmpeg = findFfmpeg();
+    if (!ffmpeg) return null;
+
+    const finalPath = path.join(AUDIO_DISK_CACHE_DIR, `${videoId}.m4a`);
 
     if (this.remuxInflight.has(videoId)) {
       return this.remuxInflight.get(videoId);
@@ -380,10 +389,10 @@ class StreamResolver {
   }
 
   prewarm(videoIds = []) {
-    const unique = [...new Set(videoIds.filter(Boolean))].slice(0, 5);
+    const unique = [...new Set(videoIds.filter(Boolean))].slice(0, 8);
     unique.forEach((id, idx) => {
-      if (idx < 3) {
-        // Pre-remux top 3 tracks for 0ms instant play with exact duration
+      if (idx < 5) {
+        // Pre-remux top 5 tracks for 0ms instant play with exact duration
         this.getFastAudioFile(id).catch(() => {});
       } else if (!this.getCached(id) && !this.inflight.has(id)) {
         this.resolve(id).catch(() => {});

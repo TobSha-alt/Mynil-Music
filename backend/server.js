@@ -121,21 +121,21 @@ async function handleStreamProxy(req, res, videoId, mode) {
     if (offlineFile) {
       return serveLocalFileWithRange(req, res, offlineFile, 'audio/mp4');
     }
-    try {
-      const localFile = await resolver.getFastAudioFile(videoId);
-      if (localFile && fs.existsSync(localFile)) {
-        return serveLocalFileWithRange(req, res, localFile, 'audio/mp4');
-      }
-    } catch {}
-  }
-
-  if (mode === 'video') {
-    const cachedVideo = resolver.getCachedVideoFile(videoId);
-    if (cachedVideo) {
-      return serveLocalFileWithRange(req, res, cachedVideo, 'video/mp4');
+    const cachedAudio = resolver.getCachedAudioFile(videoId);
+    if (cachedAudio) {
+      return serveLocalFileWithRange(req, res, cachedAudio, 'audio/mp4');
     }
-    // Warm faststart MP4 cache in background while streaming immediately
-    resolver.getFastVideoFile(videoId).catch(() => {});
+    if (process.platform === 'darwin') {
+      try {
+        const localFile = await resolver.getFastAudioFile(videoId);
+        if (localFile && fs.existsSync(localFile)) {
+          return serveLocalFileWithRange(req, res, localFile, 'audio/mp4');
+        }
+      } catch {}
+    } else {
+      // Stream immediately on Windows/Linux while warming faststart cache in background
+      resolver.getFastAudioFile(videoId).catch(() => {});
+    }
   }
 
   if (mode === 'video') {
