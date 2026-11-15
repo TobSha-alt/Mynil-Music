@@ -452,7 +452,31 @@ async function handleApi(req, res, urlObj) {
     }
 
     if (pathname === '/api/library' && req.method === 'GET') {
-      return sendJson(res, 200, store.getAll());
+      const lib = store.getAll();
+      const missing = [
+        ...(lib.likedSongs || []),
+        ...(lib.history || []),
+        ...(lib.playlists || []).flatMap((p) => p.tracks || []),
+      ].filter((t) => t && t.title && !t.spotifyStreams);
+      if (missing.length > 0) {
+        try {
+          const enriched = await Promise.race([
+            spotify.enrichTracksWithSpotifyStreams(missing.slice(0, 80)),
+            new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
+          ]);
+          if (Array.isArray(enriched)) {
+            const byId = new Map();
+            for (const t of enriched) {
+              if (t?.videoId && t.spotifyStreams) byId.set(t.videoId, t.spotifyStreams);
+            }
+            const apply = (arr) => (arr || []).map((t) => (t?.videoId && !t.spotifyStreams && byId.has(t.videoId) ? { ...t, spotifyStreams: byId.get(t.videoId) } : t));
+            lib.likedSongs = apply(lib.likedSongs);
+            lib.history = apply(lib.history);
+            lib.playlists = (lib.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
+          }
+        } catch {}
+      }
+      return sendJson(res, 200, lib);
     }
 
     if (pathname === '/api/library/like' && req.method === 'POST') {

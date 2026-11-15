@@ -210,9 +210,9 @@ export default function TrackRow({
         ) : track.views ? (
           <span
             className="text-xs font-mono tabular-nums text-zinc-500"
-            title={track.views}
+            title={`YouTube: ${track.views}`}
           >
-            {compact ? formatCompactViews(track.views) : track.views}
+            YT · {compact ? formatCompactViews(track.views) : track.views}
           </span>
         ) : null}
         {library.preferences?.showPlayCounts && streamCount > 0 && !compact && (

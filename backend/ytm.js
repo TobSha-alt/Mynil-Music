@@ -572,18 +572,29 @@ async function getHome() {
 
   const shelves = [...parseShelfList(exploreSections), ...parseShelfList(homeSections)];
   const artistCards = [];
+  const trackItems = [];
   for (const s of shelves) {
     for (const item of s.items) {
       if (item.kind === 'artist') artistCards.push(item);
+      else if (item.kind === 'song' || item.kind === 'video') trackItems.push(item);
     }
   }
-  await Promise.all(
-    artistCards.slice(0, 12).map(async (a) => {
-      const b = await spotify.getArtistSpotifyBundle(a.name).catch(() => null);
-      if (b?.avatarUrl) a.thumbnail = b.avatarUrl;
-      if (b?.monthlyListeners) a.subscribers = b.monthlyListeners;
-    })
-  );
+  await Promise.all([
+    Promise.all(
+      artistCards.slice(0, 12).map(async (a) => {
+        const b = await spotify.getArtistSpotifyBundle(a.name).catch(() => null);
+        if (b?.avatarUrl) a.thumbnail = b.avatarUrl;
+        if (b?.monthlyListeners) a.subscribers = b.monthlyListeners;
+      })
+    ),
+    spotify.enrichTracksWithSpotifyStreams(trackItems).then((enriched) => {
+      for (let i = 0; i < trackItems.length; i++) {
+        if (enriched[i]?.spotifyStreams) {
+          trackItems[i].spotifyStreams = enriched[i].spotifyStreams;
+        }
+      }
+    }).catch(() => {}),
+  ]);
   return { shelves };
 }
 
@@ -804,7 +815,7 @@ async function getPlaylist(browseId, { skipSpotifyEnrich = false } = {}) {
   };
 }
 
-async function getUpNext(videoId, playlistId = null) {
+async function getUpNext(videoId, playlistId = null, { skipSpotifyEnrich = false } = {}) {
   const body = { videoId, playlistId: playlistId || `RDAMVM${videoId}`, isAudioOnly: true };
   const data = await ytmPost('next', body);
 
@@ -842,11 +853,14 @@ async function getUpNext(videoId, playlistId = null) {
   const lyricsBrowseId = tabs.find((t) => t.tabRenderer?.title === 'Lyrics')?.tabRenderer?.endpoint?.browseEndpoint
     ?.browseId;
 
-  return { tracks, lyricsBrowseId: lyricsBrowseId || null };
+  const finalTracks = skipSpotifyEnrich
+    ? tracks
+    : await spotify.enrichTracksWithSpotifyStreams(tracks).catch(() => tracks);
+  return { tracks: finalTracks, lyricsBrowseId: lyricsBrowseId || null };
 }
 
 async function getLyrics(videoId) {
-  const { lyricsBrowseId } = await getUpNext(videoId);
+  const { lyricsBrowseId } = await getUpNext(videoId, null, { skipSpotifyEnrich: true });
   if (!lyricsBrowseId) return { lyrics: null, source: null };
   const data = await ytmPost('browse', { browseId: lyricsBrowseId });
   const shelf = data?.contents?.sectionListRenderer?.contents?.[0]?.musicDescriptionShelfRenderer;

@@ -1,4 +1,5 @@
 const ytm = require('./ytm');
+const spotify = require('./spotify');
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -241,7 +242,7 @@ async function importPlaylist({ urlOrText, name }) {
   const detected = detectSource(urlOrText);
 
   if (detected.type === 'ytm') {
-    const pl = await ytm.getPlaylist(detected.id, { skipSpotifyEnrich: true });
+    const pl = await ytm.getPlaylist(detected.id);
     if (!pl?.tracks?.length) {
       throw new Error('No tracks found in this YouTube Music playlist (it may be private).');
     }
@@ -257,17 +258,21 @@ async function importPlaylist({ urlOrText, name }) {
   if (detected.type === 'spotify') {
     const res = await fetchSpotifyPlaylist(detected.kind, detected.id);
     if ((name || '').trim()) res.title = name.trim();
+    res.tracks = await spotify.enrichTracksWithSpotifyStreams(res.tracks).catch(() => res.tracks);
     return res;
   }
 
   if (detected.type === 'amazon') {
     const res = await fetchAmazonPlaylist(detected.url);
     if ((name || '').trim()) res.title = name.trim();
+    res.tracks = await spotify.enrichTracksWithSpotifyStreams(res.tracks).catch(() => res.tracks);
     return res;
   }
 
   if (detected.type === 'text') {
-    return importFromText(detected.text, (name || '').trim());
+    const res = await importFromText(detected.text, (name || '').trim());
+    res.tracks = await spotify.enrichTracksWithSpotifyStreams(res.tracks).catch(() => res.tracks);
+    return res;
   }
 
   throw new Error(

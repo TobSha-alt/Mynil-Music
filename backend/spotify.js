@@ -314,36 +314,62 @@ async function resolveAvatarForArtist(artistName, fallbackUrl = '') {
   return fallbackUrl || '';
 }
 
+function extractCandidateArtists(track, fallbackArtistName = '') {
+  const candidates = [];
+  const push = (val) => {
+    const clean = (val || '').trim();
+    if (clean && !candidates.includes(clean)) candidates.push(clean);
+  };
+  if (Array.isArray(track?.artists)) {
+    for (const a of track.artists) push(a?.name);
+  }
+  if (track?.artist) {
+    for (const part of String(track.artist).split(/,|&|\bfeat\.?\b|\bft\.?\b|\bx\b/i)) {
+      push(part);
+    }
+  }
+  if (fallbackArtistName) push(fallbackArtistName);
+  return candidates;
+}
+
 async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = '') {
   if (!Array.isArray(tracks) || tracks.length === 0) return tracks;
 
-  // Collect unique primary artist names (up to 6 artists per request to stay blazing fast)
   const artistNames = [];
   for (const t of tracks) {
-    const primary = (t.artists?.[0]?.name || t.artist?.split(',')[0] || fallbackArtistName || '').trim();
-    if (primary && !artistNames.includes(primary)) artistNames.push(primary);
-    if (artistNames.length >= 6) break;
+    for (const name of extractCandidateArtists(t, fallbackArtistName)) {
+      if (!artistNames.includes(name)) artistNames.push(name);
+      if (artistNames.length >= 24) break;
+    }
+    if (artistNames.length >= 24) break;
   }
 
   const artistMap = new Map();
+  let cursor = 0;
+  const concurrency = Math.min(6, Math.max(1, artistNames.length));
   await Promise.all(
-    artistNames.map(async (name) => {
-      try {
-        const idx = await loadListenersIndex();
-        const spotifyId = idx.get(normalizeName(name))?.spotifyId || (await findSpotifyArtistId(name));
-        if (spotifyId) {
-          const entry = await fetchArtistSongsStreams(spotifyId);
-          if (entry) artistMap.set(normalizeName(name), entry);
-        }
-      } catch {}
+    Array.from({ length: concurrency }, async () => {
+      while (cursor < artistNames.length) {
+        const name = artistNames[cursor++];
+        try {
+          const idx = await loadListenersIndex();
+          const spotifyId = idx.get(normalizeName(name))?.spotifyId || (await findSpotifyArtistId(name));
+          if (spotifyId) {
+            const entry = await fetchArtistSongsStreams(spotifyId);
+            if (entry) artistMap.set(normalizeName(name), entry);
+          }
+        } catch {}
+      }
     })
   );
 
   return tracks.map((t) => {
-    const primary = normalizeName(t.artists?.[0]?.name || t.artist?.split(',')[0] || fallbackArtistName || '');
-    const entry = artistMap.get(primary);
-    const streams = matchStreamCount(t.title, entry);
-    return streams ? { ...t, spotifyStreams: streams } : t;
+    for (const name of extractCandidateArtists(t, fallbackArtistName)) {
+      const entry = artistMap.get(normalizeName(name));
+      const streams = matchStreamCount(t.title, entry);
+      if (streams) return { ...t, spotifyStreams: streams };
+    }
+    return t;
   });
 }
 

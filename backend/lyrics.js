@@ -93,6 +93,20 @@ function normalizeQuery(rawTitle = '', rawArtist = '') {
   return { title, artist };
 }
 
+const JUNK_LINE_RE = /^(resumen|letras|videos|escuchar|otras grabaciones|resultados principales|overview|other recordings|main results|listen|source:|fuente:|lyrics provided by|synced by|subtitles by|traducci[oó]n|letra\s*de\b)/i;
+
+function hasScrapedUiJunk(text = '') {
+  if (!text) return false;
+  if (/resultados principales|otras grabaciones|other recordings|main results/i.test(text)) return true;
+  const firstLines = text.split(/\r?\n/).slice(0, 12);
+  let hits = 0;
+  for (const l of firstLines) {
+    const clean = l.replace(/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim();
+    if (JUNK_LINE_RE.test(clean)) hits++;
+  }
+  return hits >= 2;
+}
+
 function parseLrc(lrcText = '') {
   if (!lrcText || typeof lrcText !== 'string') return [];
   const rows = [];
@@ -120,6 +134,7 @@ function parseLrc(lrcText = '') {
     if (timestamps.length === 0) continue;
 
     const text = rawLine.replace(timeTagRe, '').replace(wordTagRe, '').replace(/\s+/g, ' ').trim();
+    if (text && JUNK_LINE_RE.test(text)) continue;
     for (const time of timestamps) {
       rows.push({
         time: Math.round(time * 1000) / 1000,
@@ -198,6 +213,7 @@ function scoreCandidate(item, targetTitle, targetArtist, targetDurationSec) {
   else if (item.plainLyrics) score += 20;
 
   if (item.instrumental) score -= 150;
+  if (hasScrapedUiJunk(item.syncedLyrics || item.plainLyrics || '')) score -= 500;
 
   const tItemRaw = (item.trackName || '').toLowerCase();
   const tGoalRaw = (targetTitle || '').toLowerCase();
