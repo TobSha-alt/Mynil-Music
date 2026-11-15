@@ -13,7 +13,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
   const visualizerStyle = prefs.visualizerStyle || 'bars';
   const visualizerColor = prefs.visualizerColor || 'accent';
   const visualizerPeakDelay = Number(prefs.visualizerPeakDelay ?? 1.2);
-  const panRef = usePanMotion(panningWaveform, panFrequency, panAmplitude, isPlaying, panRotation);
+  const panRef = usePanMotion(panningWaveform, panFrequency, panAmplitude, isPlaying, panRotation, 2.35);
 
   const liveRef = useRef({
     isPlaying,

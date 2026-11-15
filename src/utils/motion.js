@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export function usePanMotion(enabled, frequency = 0.6, amplitude = 14, isPlaying = true, rotate = false) {
+export function usePanMotion(enabled, frequency = 0.6, amplitude = 14, isPlaying = true, rotate = false, phaseOffset = 0) {
   const [el, setEl] = useState(null);
-  const phaseRef = useRef(0);
-  const stateRef = useRef({ enabled, frequency, amplitude, isPlaying, rotate });
-  stateRef.current = { enabled, frequency, amplitude, isPlaying, rotate };
+  const phaseRef = useRef(phaseOffset);
+  const stateRef = useRef({ enabled, frequency, amplitude, isPlaying, rotate, phaseOffset });
+  stateRef.current = { enabled, frequency, amplitude, isPlaying, rotate, phaseOffset };
 
   const attachRef = useCallback((node) => {
     setEl(node);
@@ -21,12 +21,13 @@ export function usePanMotion(enabled, frequency = 0.6, amplitude = 14, isPlaying
     let lastTs = performance.now();
 
     const applyTransform = () => {
-      const { amplitude: a, rotate: rot } = stateRef.current;
+      const { amplitude: a, rotate: rot, phaseOffset: off } = stateRef.current;
       const amp = Math.max(0, Math.min(48, Number(a) || 14));
       const p = phaseRef.current;
+      const yMul = off ? 0.88 : 0.72;
       const x = Math.sin(p) * amp;
-      const y = Math.cos(p * 0.72) * (amp * 0.52);
-      const deg = rot ? Math.sin(p * 0.85) * Math.min(18, amp * 0.45) : 0;
+      const y = Math.cos(p * yMul + off * 0.5) * (amp * 0.52);
+      const deg = rot ? Math.sin(p * (off ? 0.71 : 0.85) + off) * Math.min(18, amp * 0.45) : 0;
       el.style.transform = rot
         ? `translate3d(${x.toFixed(3)}px, ${y.toFixed(3)}px, 0) rotate(${deg.toFixed(3)}deg)`
         : `translate3d(${x.toFixed(3)}px, ${y.toFixed(3)}px, 0)`;
