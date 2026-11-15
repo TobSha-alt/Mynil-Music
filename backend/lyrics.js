@@ -95,6 +95,7 @@ function normalizeQuery(rawTitle = '', rawArtist = '') {
 
 const JUNK_LINE_RE = /^(resumen|letras|videos|escuchar|otras grabaciones|resultados principales|overview|other recordings|main results|listen|source:|fuente:|lyrics provided by|synced by|subtitles by|traducci[oó]n|letra\s*de\b)/i;
 const DECORATIVE_BANNER_RE = /^[☆★✦✧✿◈❖]+\s*.+?\s*[☆★✦✧✿◈❖]+$/;
+const NOTE_OR_INSTRUMENTAL_RE = /^(?:[♪♫♩♬♭♮♯🎵🎶🎼•·.\-–—~_\s()\[\]]+|[\[(]?\s*instrumental\s*[\])]?)$/i;
 
 function hasScrapedUiJunk(text = '') {
   if (!text) return false;
@@ -134,8 +135,13 @@ function parseLrc(lrcText = '') {
     }
     if (timestamps.length === 0) continue;
 
-    const text = rawLine.replace(timeTagRe, '').replace(wordTagRe, '').replace(/\s+/g, ' ').trim();
+    let text = rawLine.replace(timeTagRe, '').replace(wordTagRe, '').replace(/\s+/g, ' ').trim();
     if (text && (JUNK_LINE_RE.test(text) || DECORATIVE_BANNER_RE.test(text))) continue;
+    if (text && NOTE_OR_INSTRUMENTAL_RE.test(text)) {
+      text = '';
+    } else if (text) {
+      text = text.replace(/^[♪♫♩♬♭♮♯🎵🎶🎼\s]+|[♪♫♩♬♭♮♯🎵🎶🎼\s]+$/g, '').trim();
+    }
     for (const time of timestamps) {
       rows.push({
         time: Math.round(time * 1000) / 1000,

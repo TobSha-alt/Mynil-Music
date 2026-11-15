@@ -134,15 +134,19 @@ function InstrumentalWaveform({ variant = 'drawer', progress = 0, progressRef = 
         ctx.fill();
       }
 
-      rafId = requestAnimationFrame(draw);
+      if (playing && rowActive) {
+        rafId = requestAnimationFrame(draw);
+      } else {
+        rafId = 0;
+      }
     };
 
     rafId = requestAnimationFrame(draw);
     return () => {
-      cancelAnimationFrame(rafId);
+      if (rafId) cancelAnimationFrame(rafId);
       ro.disconnect();
     };
-  }, [analyserRef, variant, progressRef]);
+  }, [analyserRef, variant, progressRef, isPlaying, active]);
 
   return (
     <div className="inline-flex items-center">
@@ -473,11 +477,12 @@ export default function SyncedLyrics({ variant = 'drawer', hideHeader = false })
         ref={scrollRef}
         onWheel={handleManualScrollIntent}
         onTouchStart={handleManualScrollIntent}
+        style={{ willChange: 'scroll-position', contain: 'layout style paint' }}
         className={`relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar lyrics-mask ${
           variant === 'theater' ? '-mx-5 px-7' : 'px-5'
         }`}
       >
-        <div className={`${padY} ${gapY}`}>
+        <div className={`${padY} ${gapY}`} style={{ transform: 'translateZ(0)' }}>
           {/* Neat song-matched audio waveform during intro before first vocal */}
           {inLeadIntro && (
             <div className="flex items-center gap-3 px-3 py-2 transition-opacity duration-300">
@@ -499,7 +504,10 @@ export default function SyncedLyrics({ variant = 'drawer', hideHeader = false })
               const isPast = isSynced && activeIndex >= 0 && i < activeIndex;
               const dist = activeIndex >= 0 ? Math.abs(i - activeIndex) : 0;
 
-              if (line.isInstrumental) {
+              const isInstrumental =
+                line.isInstrumental || /^[♪♫♩♬♭♮♯🎵🎶🎼\s]+$/.test(line.text || '');
+
+              if (isInstrumental) {
                 return (
                   <div
                     key={`${i}-${line.time ?? 'plain'}`}
@@ -607,7 +615,7 @@ export default function SyncedLyrics({ variant = 'drawer', hideHeader = false })
                       style={{
                         transform: lineTransform,
                         textShadow: glowStyle,
-                        transitionProperty: 'color, transform, text-shadow, filter',
+                        transitionProperty: 'color, transform',
                         transitionDuration: `${lyricTransitionMs}ms`,
                         transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
                       }}
