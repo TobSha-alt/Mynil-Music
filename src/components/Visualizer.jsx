@@ -143,8 +143,26 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
       }
 
       // Freeze wave shape & panning spotlight in exact paused position when paused; resume smoothly on play
-      const smoothFactor = 1 - Math.exp(-dt * (24 * Math.max(0.7, Math.min(2.0, agg))));
-      const shapeGain = (val) => Math.min(1, Math.pow(Math.max(0, val), 1 / (0.65 + agg * 0.35)) * agg);
+      const smoothFactor = 1 - Math.exp(-dt * (26 + agg * 14));
+      let frameMean = 0;
+      if (hasSignal && bins) {
+        const limit = Math.max(1, Math.floor(bins.length * 0.68));
+        for (let k = 0; k < limit; k++) frameMean += bins[k] / 255;
+        frameMean /= limit;
+      }
+      const sampleBin = (i) => {
+        const t = i / Math.max(1, barCount - 1);
+        const binIdx = Math.min(bins.length - 1, Math.floor(Math.pow(t, 1.35) * (bins.length * 0.68)));
+        const raw = bins[binIdx] / 255;
+        // Subtract part of the frame floor when aggression is high so peaks spike above quiet bars
+        const floorCut = frameMean * Math.max(0, (agg - 0.6) * 0.42);
+        return Math.max(0.02, raw - floorCut);
+      };
+      const shapeGain = (val) => {
+        const contrastPow = 1.05 + Math.max(0, agg - 0.5) * 1.1;
+        const boost = 0.85 + agg * 0.55;
+        return Math.min(1, Math.pow(Math.max(0, val), contrastPow) * boost);
+      };
       const peakDecay = dt / Math.max(0.1, Number(peakDelay) || 1.2);
       const gap = 3;
       const barW = Math.max(2, (w - gap * (barCount - 1)) / barCount);
@@ -163,8 +181,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
           if (playing) {
             let target;
             if (hasSignal) {
-              const binIdx = Math.min(bins.length - 1, Math.floor((i / barCount) * (bins.length * 0.72)));
-              target = bins[binIdx] / 255;
+              target = sampleBin(i);
             } else {
               const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
               target =
@@ -219,8 +236,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
         if (playing) {
           let target;
           if (hasSignal) {
-            const binIdx = Math.min(bins.length - 1, Math.floor((i / barCount) * (bins.length * 0.72)));
-            target = bins[binIdx] / 255;
+            target = sampleBin(i);
           } else {
             const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
             target =
