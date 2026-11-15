@@ -294,10 +294,14 @@ export function PlayerProvider({ children }) {
 
   // Fetch synced/plain lyrics whenever currentTrack or newly-resolved duration updates
   const lyricsFetchedKeyRef = useRef('');
+  const activeLyricsVidRef = useRef('');
+  const lyricsLoadedOkRef = useRef('');
   useEffect(() => {
     const vid = currentTrack?.videoId;
+    activeLyricsVidRef.current = vid || '';
     if (!vid) {
       lyricsFetchedKeyRef.current = '';
+      lyricsLoadedOkRef.current = '';
       setLyrics({ videoId: null, synced: false, lines: [], text: null, source: null, loading: false });
       return;
     }
@@ -311,21 +315,23 @@ export function PlayerProvider({ children }) {
     const durSec = streamDur || metaDur || songCounterpartDur;
     const reqKey = `${vid}:${durSec}`;
 
+    const isSameVidLoaded = lyricsLoadedOkRef.current === vid;
     // Skip if already fetched for this exact duration or within 1s when stream duration arrives
-    if (lyricsFetchedKeyRef.current === reqKey) return;
+    if (lyricsFetchedKeyRef.current === reqKey && isSameVidLoaded) return;
     const prevParts = lyricsFetchedKeyRef.current.split(':');
     if (prevParts[0] === vid) {
       const prevDur = Number(prevParts[1]) || 0;
-      if (prevDur > 0 && Math.abs(prevDur - durSec) < 2) {
+      if (prevDur > 0 && Math.abs(prevDur - durSec) < 2 && (isSameVidLoaded || prevDur === durSec)) {
         return;
       }
+      if (lyricsFetchedKeyRef.current === reqKey) return;
     }
 
     const isRefinement = prevParts[0] === vid && durSec > 0;
     lyricsFetchedKeyRef.current = reqKey;
 
-    let cancelled = false;
     if (!isRefinement) {
+      lyricsLoadedOkRef.current = '';
       setLyrics({ videoId: vid, synced: false, lines: [], text: null, source: null, loading: true });
     }
     window.sona
@@ -337,25 +343,22 @@ export function PlayerProvider({ children }) {
         duration: durSec,
       })
       .then((res) => {
-        if (!cancelled) {
-          setLyrics({
-            videoId: vid,
-            synced: Boolean(res?.synced),
-            lines: Array.isArray(res?.lines) ? res.lines : [],
-            text: res?.lyrics || null,
-            source: res?.source || null,
-            loading: false,
-          });
-        }
+        if (activeLyricsVidRef.current !== vid) return;
+        lyricsLoadedOkRef.current = vid;
+        setLyrics({
+          videoId: vid,
+          synced: Boolean(res?.synced),
+          lines: Array.isArray(res?.lines) ? res.lines : [],
+          text: res?.lyrics || null,
+          source: res?.source || null,
+          loading: false,
+        });
       })
       .catch(() => {
-        if (!cancelled && !isRefinement) {
+        if (activeLyricsVidRef.current === vid && lyricsLoadedOkRef.current !== vid) {
           setLyrics({ videoId: vid, synced: false, lines: [], text: null, source: null, loading: false });
         }
       });
-    return () => {
-      cancelled = true;
-    };
   }, [currentTrack?.videoId, currentTrack?.title, currentTrack?.artist, currentTrack?.durationSec, currentTrack?.isVideo, mediaMode, duration]);
 
   // Prewarm next 2 tracks in queue whenever queueIndex changes
