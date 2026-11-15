@@ -705,6 +705,82 @@ async function getBasedOnLastListened(history = [], { refresh = false } = {}) {
   return shelf;
 }
 
+async function getMoreSongsYouMightLike(libraryState, { excludeIds = new Set(), refresh = false } = {}) {
+  const liked = Array.isArray(libraryState?.likedSongs) ? libraryState.likedSongs : [];
+  const history = Array.isArray(libraryState?.history) ? libraryState.history : [];
+  const playlists = Array.isArray(libraryState?.playlists) ? libraryState.playlists : [];
+  const followed = Array.isArray(libraryState?.followedArtists) ? libraryState.followedArtists : [];
+
+  const pool = [];
+  const seenSeed = new Set();
+  for (const t of [...liked.slice(0, 12), ...history.slice(3, 18), ...playlists.flatMap((p) => (p.tracks || []).slice(0, 6))]) {
+    if (t?.videoId && !seenSeed.has(t.videoId)) {
+      seenSeed.add(t.videoId);
+      pool.push(t);
+    }
+  }
+
+  // Pick up to 3 diverse seed tracks (offset when refreshing)
+  const offset = refresh ? Math.floor(Math.random() * Math.max(1, pool.length)) : 0;
+  const rotated = pool.length ? [...pool.slice(offset), ...pool.slice(0, offset)] : [];
+  const seeds = rotated.slice(0, 3);
+
+  const candidates = [];
+  const used = new Set(excludeIds);
+  for (const s of seeds) used.add(s.videoId);
+
+  const [upNextResults, artistResults] = await Promise.all([
+    Promise.all(
+      seeds.map((s) => ytm.getUpNext(s.videoId).catch(() => ({ tracks: [] })))
+    ),
+    Promise.all(
+      followed.slice(0, 2).map((a) =>
+        ytm.search(`${a.name} top songs`, 'songs', { skipSpotifyEnrich: true }).catch(() => ({ items: [] }))
+      )
+    ),
+  ]);
+
+  const rawList = [
+    ...upNextResults.flatMap((r) => r?.tracks || []),
+    ...artistResults.flatMap((r) => r?.items || []),
+  ];
+
+  // Fallback curated queries if user has an empty library
+  if (rawList.length === 0) {
+    const fallback = await ytm.search('indie alternative rock classics', 'songs', { skipSpotifyEnrich: true }).catch(() => ({ items: [] }));
+    rawList.push(...(fallback?.items || []));
+  }
+
+  const artistCounts = new Map();
+  for (const t of rawList) {
+    if (!t?.videoId || used.has(t.videoId)) continue;
+    if (JUNK_TRACK_RE.test(t.title || '')) continue;
+    const art = normalizeText(t.artists?.[0]?.name || t.artist?.split(',')[0] || '');
+    if ((artistCounts.get(art) || 0) >= 2) continue;
+    used.add(t.videoId);
+    artistCounts.set(art, (artistCounts.get(art) || 0) + 1);
+    candidates.push({ ...t, kind: 'song' });
+    if (candidates.length >= 20) break;
+  }
+
+  const enriched = await spotify.enrichTracksWithSpotifyStreams(candidates).catch(() => candidates);
+  const shelves = [];
+  if (enriched.length > 0) {
+    shelves.push({
+      title: 'More Songs You Might Like',
+      items: enriched.slice(0, 10),
+    });
+  }
+  if (enriched.length > 10) {
+    shelves.push({
+      title: 'Deep Cuts & Similar Vibes',
+      items: enriched.slice(10, 20),
+    });
+  }
+  return shelves;
+}
+
 module.exports = {
   getBasedOnLastListened,
+  getMoreSongsYouMightLike,
 };

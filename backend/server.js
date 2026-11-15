@@ -353,18 +353,25 @@ async function handleApi(req, res, urlObj) {
 
     if (pathname === '/api/home') {
       const refresh = searchParams.get('refresh') === '1';
+      const libState = store.getAll();
       const [result, basedOnShelf] = await Promise.all([
         ytm.getHome(),
-        recommendations.getBasedOnLastListened(store.getAll().history, { refresh }).catch(() => null),
+        recommendations.getBasedOnLastListened(libState.history, { refresh }).catch(() => null),
       ]);
 
+      const excludeIds = new Set((basedOnShelf?.items || []).map((t) => t.videoId).filter(Boolean));
+      const extraShelves = await recommendations
+        .getMoreSongsYouMightLike(libState, { excludeIds, refresh })
+        .catch(() => []);
+
       const filteredShelves = (result.shelves || []).filter(
-        (s) => !/new albums?\s*(&|and)\s*singles/i.test(s.title || '')
+        (s) => !/new albums?\s*(&|and)\s*singles|trending|new music videos?|music videos/i.test(s.title || '')
       );
-      const shelves =
-        basedOnShelf && basedOnShelf.items?.length > 0
-          ? [basedOnShelf, ...filteredShelves]
-          : filteredShelves;
+      const shelves = [
+        ...(basedOnShelf && basedOnShelf.items?.length > 0 ? [basedOnShelf] : []),
+        ...extraShelves,
+        ...filteredShelves,
+      ];
 
       const firstTracks = [];
       for (const s of shelves) {
