@@ -4,6 +4,8 @@ import { usePlayer } from '../context/PlayerContext';
 import ArtistAvatar from './ArtistAvatar';
 import CoverArt from './CoverArt';
 
+const IS_MAC = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent || '');
+
 export default function TopBar({
   canGoBack,
   canGoForward,
@@ -154,7 +156,7 @@ export default function TopBar({
             </button>
           ) : (
             <kbd className="mr-3 px-1.5 py-0.5 rounded-md bg-white/[0.07] border border-white/10 text-[10px] font-mono text-zinc-400 shrink-0">
-              ⌘K
+              {IS_MAC ? '⌘K' : 'Ctrl+K'}
             </kbd>
           )}
         </div>

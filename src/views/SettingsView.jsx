@@ -75,6 +75,8 @@ const LYRIC_ALIGNS = [
   { id: 'center', label: 'Centered' },
 ];
 
+const IS_MAC = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent || '');
+
 const SHORTCUTS = [
   { key: 'Space', label: 'Play / Pause' },
   { key: '← / →', label: 'Seek ±5s' },
@@ -83,7 +85,7 @@ const SHORTCUTS = [
   { key: 'L', label: 'Lyrics Drawer' },
   { key: 'Q', label: 'Queue Drawer' },
   { key: 'F', label: 'Fullscreen Mode' },
-  { key: '⌘ K', label: 'Quick Search' },
+  { key: IS_MAC ? '⌘ K' : 'Ctrl + K', label: 'Quick Search' },
 ];
 
 export default function SettingsView() {
