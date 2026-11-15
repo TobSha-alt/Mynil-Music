@@ -1355,6 +1355,12 @@ export function PlayerProvider({ children }) {
     return res;
   }, []);
 
+  const dedupePlaylists = useCallback(async () => {
+    const res = await window.sona.dedupePlaylists();
+    if (res?.state) setLibrary(res.state);
+    return res;
+  }, []);
+
   const updatePlaylist = useCallback(async (id, patch) => {
     const next = await window.sona.updatePlaylist(id, patch);
     setLibrary(next);
@@ -1472,6 +1478,7 @@ export function PlayerProvider({ children }) {
       createPlaylist,
       importPlaylist,
       importMusicTaste,
+      dedupePlaylists,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,
@@ -1539,6 +1546,7 @@ export function PlayerProvider({ children }) {
       createPlaylist,
       importPlaylist,
       importMusicTaste,
+      dedupePlaylists,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,

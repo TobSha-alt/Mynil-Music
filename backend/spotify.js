@@ -40,6 +40,7 @@ function normalizeTrackTitle(str) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
     .replace(/\((feat\.|ft\.|with|remaster|remastered|official|audio|video|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live)[^)]*\)/gi, '')
     .replace(/\[[^\]]*\]/g, '')
     .replace(/\s*-\s*(remaster|remastered|single version|album version|radio edit|mono|stereo|\d{4}\s*remaster).*$/i, '')
@@ -339,9 +340,9 @@ async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = 
   for (const t of tracks) {
     for (const name of extractCandidateArtists(t, fallbackArtistName)) {
       if (!artistNames.includes(name)) artistNames.push(name);
-      if (artistNames.length >= 24) break;
+      if (artistNames.length >= 60) break;
     }
-    if (artistNames.length >= 24) break;
+    if (artistNames.length >= 60) break;
   }
 
   const artistMap = new Map();

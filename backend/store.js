@@ -248,6 +248,34 @@ class LibraryStore {
     return this.state;
   }
 
+  deleteDuplicatePlaylists() {
+    const playlists = Array.isArray(this.state.playlists) ? this.state.playlists : [];
+    const bestByKey = new Map();
+    for (const pl of playlists) {
+      const key = String(pl?.name || '').trim().toLowerCase() || `__untitled__${pl?.id || ''}`;
+      const existing = bestByKey.get(key);
+      if (!existing) {
+        bestByKey.set(key, pl);
+        continue;
+      }
+      const plTracks = Array.isArray(pl?.tracks) ? pl.tracks.length : 0;
+      const exTracks = Array.isArray(existing?.tracks) ? existing.tracks.length : 0;
+      const plUpdated = Number(pl?.updatedAt || 0);
+      const exUpdated = Number(existing?.updatedAt || 0);
+      if (plTracks > exTracks || (plTracks === exTracks && plUpdated > exUpdated)) {
+        bestByKey.set(key, pl);
+      }
+    }
+    const keptIds = new Set(Array.from(bestByKey.values()).map((p) => p.id));
+    const deduped = playlists.filter((p) => keptIds.has(p.id));
+    const removedCount = playlists.length - deduped.length;
+    if (removedCount > 0) {
+      this.state.playlists = deduped;
+      this.save();
+    }
+    return { removedCount, state: this.state };
+  }
+
   addToPlaylist(playlistId, track) {
     const pl = this.state.playlists.find((p) => p.id === playlistId);
     if (!pl || !track?.videoId) return this.state;

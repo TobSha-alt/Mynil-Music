@@ -468,18 +468,21 @@ async function handleApi(req, res, urlObj) {
       if (missing.length > 0) {
         try {
           const enriched = await Promise.race([
-            spotify.enrichTracksWithSpotifyStreams(missing.slice(0, 80)),
-            new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
+            spotify.enrichTracksWithSpotifyStreams(missing.slice(0, 160)),
+            new Promise((resolve) => setTimeout(() => resolve(null), 5500)),
           ]);
           if (Array.isArray(enriched)) {
             const byId = new Map();
             for (const t of enriched) {
               if (t?.videoId && t.spotifyStreams) byId.set(t.videoId, t.spotifyStreams);
             }
-            const apply = (arr) => (arr || []).map((t) => (t?.videoId && !t.spotifyStreams && byId.has(t.videoId) ? { ...t, spotifyStreams: byId.get(t.videoId) } : t));
-            lib.likedSongs = apply(lib.likedSongs);
-            lib.history = apply(lib.history);
-            lib.playlists = (lib.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
+            if (byId.size > 0) {
+              const apply = (arr) => (arr || []).map((t) => (t?.videoId && !t.spotifyStreams && byId.has(t.videoId) ? { ...t, spotifyStreams: byId.get(t.videoId) } : t));
+              lib.likedSongs = apply(lib.likedSongs);
+              lib.history = apply(lib.history);
+              lib.playlists = (lib.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
+              store.save();
+            }
           }
         } catch {}
       }
@@ -605,6 +608,10 @@ async function handleApi(req, res, urlObj) {
     if (pathname === '/api/library/playlist/delete' && req.method === 'POST') {
       const body = await readJsonBody(req);
       return sendJson(res, 200, store.deletePlaylist(body.id));
+    }
+
+    if (pathname === '/api/library/playlist/dedupe' && req.method === 'POST') {
+      return sendJson(res, 200, store.deleteDuplicatePlaylists());
     }
 
     if (pathname === '/api/library/playlist/add' && req.method === 'POST') {

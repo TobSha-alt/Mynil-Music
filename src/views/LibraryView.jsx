@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, Plus, ListMusic, Users, Disc3, Play, Download, X, Loader2, Sparkles } from 'lucide-react';
+import { Heart, Plus, ListMusic, Users, Disc3, Play, Download, X, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { ArtistCard, AlbumCard } from '../components/MediaCards';
 import TrackRow from '../components/TrackRow';
@@ -13,8 +13,9 @@ export default function LibraryView({
   onOpenAlbum,
   onOpenNewPlaylist,
 }) {
-  const { library, playTrack, importPlaylist, importMusicTaste, showToast } = usePlayer();
+  const { library, playTrack, importPlaylist, importMusicTaste, dedupePlaylists, showToast } = usePlayer();
   const [tab, setTab] = useState(initialTab);
+  const [deduping, setDeduping] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importInput, setImportInput] = useState('');
   const [importName, setImportName] = useState('');
@@ -74,6 +75,20 @@ export default function LibraryView({
     }
   };
 
+  const handleDedupePlaylists = async () => {
+    if (deduping) return;
+    setDeduping(true);
+    try {
+      const res = await dedupePlaylists();
+      const count = res?.removedCount || 0;
+      showToast?.(count > 0 ? `Deleted ${count} duplicate playlist${count === 1 ? '' : 's'}` : 'No duplicate playlists found');
+    } catch (err) {
+      showToast?.(err?.message || 'Failed to delete duplicate playlists');
+    } finally {
+      setDeduping(false);
+    }
+  };
+
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
@@ -90,6 +105,16 @@ export default function LibraryView({
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-3xl font-extrabold text-white tracking-tight">Your Library</h1>
         <div className="flex items-center gap-2">
+          {library.playlists.length > 1 && (
+            <button
+              onClick={handleDedupePlaylists}
+              disabled={deduping}
+              className="px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
+              title="Remove playlists with duplicate names"
+            >
+              {deduping ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete Duplicates
+            </button>
+          )}
           <button
             onClick={() => {
               setTasteError('');
