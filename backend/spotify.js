@@ -12,17 +12,80 @@ const CACHE_DIR = CACHE_BASE;
 fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 const LISTENERS_CACHE_FILE = path.join(CACHE_DIR, 'kworb-listeners.json');
+const YTM_STREAMS_CACHE_FILE = path.join(CACHE_DIR, 'ytm-streams.json');
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 const GOOGLEBOT_UA = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
 let listenersIndex = null; // Map<normalizedName, { spotifyId, name, listenersNum, listenersText }>
 let listenersPromise = null;
+let kworbDownUntil = 0;
 
 const artistIdCache = new Map(); // normalizedName -> spotifyId | null
 const artistPageCache = new Map(); // spotifyId -> { monthlyListeners, avatarUrl, expires }
 const artistSongsCache = new Map(); // spotifyId -> { songs: Map<normTitle, { title, streams }>, rawList: [], expires }
 const deezerAvatarCache = new Map(); // normalizedName -> url | null
+const ytmStreamsCache = new Map(); // videoId -> number
+
+try {
+  if (fs.existsSync(YTM_STREAMS_CACHE_FILE)) {
+    const raw = JSON.parse(fs.readFileSync(YTM_STREAMS_CACHE_FILE, 'utf8'));
+    if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) {
+        const num = Number(v);
+        if (k && num > 0) ytmStreamsCache.set(k, num);
+      }
+    }
+  }
+} catch {}
+
+function saveYtmStreamsCache() {
+  try {
+    const obj = Object.fromEntries(ytmStreamsCache.entries());
+    fs.writeFileSync(YTM_STREAMS_CACHE_FILE, JSON.stringify(obj), 'utf8');
+  } catch {}
+}
+
+async function fetchYtmTrackStreamCount(videoId) {
+  if (!videoId) return 0;
+  if (ytmStreamsCache.has(videoId)) return ytmStreamsCache.get(videoId) || 0;
+  try {
+    const res = await fetch('https://music.youtube.com/youtubei/v1/player?prettyPrint=false', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        Origin: 'https://music.youtube.com',
+        Referer: 'https://music.youtube.com/',
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB_REMIX',
+            clientVersion: '1.20241106.01.00',
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+        videoId,
+      }),
+      signal: AbortSignal.timeout(3500),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const count =
+        Number(data?.videoDetails?.viewCount) ||
+        Number(data?.microformat?.microformatDataRenderer?.viewCount) ||
+        0;
+      if (count > 0) {
+        ytmStreamsCache.set(videoId, count);
+        return count;
+      }
+    }
+  } catch {}
+  return 0;
+}
 
 function normalizeName(str) {
   return (str || '')
@@ -86,34 +149,56 @@ async function loadListenersIndex({ forceRefresh = false } = {}) {
 
     const map = new Map();
     const arr = [];
-    try {
-      const res = await fetch('https://kworb.net/spotify/listeners.html');
-      if (res.ok) {
-        const html = await res.text();
-        const matches = html.matchAll(
-          /href="artist\/([a-zA-Z0-9]+)_songs\.html">([^<]+)<\/a><\/div><\/td><td[^>]*>([\d,]+)<\/td>/g
-        );
-        for (const m of matches) {
-          const spotifyId = m[1];
-          const name = m[2].replace(/&amp;/g, '&').replace(/&#039;/g, "'").replace(/&quot;/g, '"').trim();
-          const listenersNum = Number(m[3].replace(/,/g, '')) || 0;
-          const entry = {
-            spotifyId,
-            name,
-            listenersNum,
-            listenersText: formatCompactListeners(listenersNum),
-          };
-          arr.push(entry);
-          const key = normalizeName(name);
-          if (!map.has(key)) map.set(key, entry);
+    if (Date.now() >= kworbDownUntil) {
+      try {
+        const res = await fetch('https://kworb.net/spotify/listeners.html', {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          const html = await res.text();
+          const matches = html.matchAll(
+            /href="artist\/([a-zA-Z0-9]+)_songs\.html">([^<]+)<\/a><\/div><\/td><td[^>]*>([\d,]+)<\/td>/g
+          );
+          for (const m of matches) {
+            const spotifyId = m[1];
+            const name = m[2].replace(/&amp;/g, '&').replace(/&#039;/g, "'").replace(/&quot;/g, '"').trim();
+            const listenersNum = Number(m[3].replace(/,/g, '')) || 0;
+            const entry = {
+              spotifyId,
+              name,
+              listenersNum,
+              listenersText: formatCompactListeners(listenersNum),
+            };
+            arr.push(entry);
+            const key = normalizeName(name);
+            if (!map.has(key)) map.set(key, entry);
+          }
+          if (arr.length > 0) {
+            try {
+              fs.writeFileSync(LISTENERS_CACHE_FILE, JSON.stringify(arr), 'utf8');
+            } catch {}
+          } else {
+            kworbDownUntil = Date.now() + 60_000;
+          }
+        } else {
+          kworbDownUntil = Date.now() + 60_000;
         }
-        if (arr.length > 0) {
-          try {
-            fs.writeFileSync(LISTENERS_CACHE_FILE, JSON.stringify(arr), 'utf8');
-          } catch {}
-        }
+      } catch {
+        kworbDownUntil = Date.now() + 60_000;
       }
-    } catch {}
+    }
+
+    // Fallback to stale disk cache if network fetch failed
+    if (map.size === 0) {
+      try {
+        if (fs.existsSync(LISTENERS_CACHE_FILE)) {
+          const staleArr = JSON.parse(fs.readFileSync(LISTENERS_CACHE_FILE, 'utf8'));
+          for (const item of staleArr) {
+            map.set(normalizeName(item.name), item);
+          }
+        }
+      } catch {}
+    }
 
     if (map.size > 0) {
       listenersIndex = map;
@@ -223,11 +308,14 @@ async function fetchArtistSongsStreams(spotifyId) {
   if (!spotifyId) return null;
   const cached = artistSongsCache.get(spotifyId);
   if (cached && cached.expires > Date.now()) return cached;
+  if (Date.now() < kworbDownUntil) return null;
 
   const songs = new Map();
   const rawList = [];
   try {
-    const res = await fetch(`https://kworb.net/spotify/artist/${spotifyId}_songs.html`);
+    const res = await fetch(`https://kworb.net/spotify/artist/${spotifyId}_songs.html`, {
+      signal: AbortSignal.timeout(2000),
+    });
     if (res.ok) {
       const html = await res.text();
       const rows = html.matchAll(
@@ -247,8 +335,15 @@ async function fetchArtistSongsStreams(spotifyId) {
           songs.set(norm, { title, streams });
         }
       }
+      if (rawList.length === 0) {
+        kworbDownUntil = Date.now() + 60_000;
+      }
+    } else {
+      kworbDownUntil = Date.now() + 60_000;
     }
-  } catch {}
+  } catch {
+    kworbDownUntil = Date.now() + 60_000;
+  }
 
   const entry = { songs, rawList, expires: Date.now() + TTL_MS };
   if (rawList.length > 0) {
@@ -368,12 +463,39 @@ async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = 
     })
   );
 
-  return tracks.map((t) => {
+  const afterKworb = tracks.map((t) => {
+    if (t?.spotifyStreams) return t;
     for (const name of extractCandidateArtists(t, fallbackArtistName)) {
       const entry = artistMap.get(normalizeName(name));
       const streams = matchStreamCount(t.title, entry);
       if (streams) return { ...t, spotifyStreams: streams };
     }
+    return t;
+  });
+
+  // Fallback for any track still missing spotifyStreams: query YTM player viewCount
+  const needYtm = afterKworb.filter((t) => t && t.videoId && !t.spotifyStreams);
+  if (needYtm.length > 0) {
+    let ytmCursor = 0;
+    let cacheDirty = false;
+    const ytmConcurrency = Math.min(8, needYtm.length);
+    await Promise.all(
+      Array.from({ length: ytmConcurrency }, async () => {
+        while (ytmCursor < needYtm.length) {
+          const item = needYtm[ytmCursor++];
+          const hadCached = ytmStreamsCache.has(item.videoId);
+          const count = await fetchYtmTrackStreamCount(item.videoId);
+          if (count > 0 && !hadCached) cacheDirty = true;
+        }
+      })
+    );
+    if (cacheDirty) saveYtmStreamsCache();
+  }
+
+  return afterKworb.map((t) => {
+    if (t?.spotifyStreams) return t;
+    const ytmCount = t?.videoId ? ytmStreamsCache.get(t.videoId) : 0;
+    if (ytmCount > 0) return { ...t, spotifyStreams: ytmCount };
     return t;
   });
 }

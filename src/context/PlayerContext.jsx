@@ -1202,6 +1202,23 @@ export function PlayerProvider({ children }) {
     return lib;
   }, []);
 
+  useEffect(() => {
+    const onFocus = () => {
+      refreshLibrary().catch(() => {});
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshLibrary]);
+
+  useEffect(() => {
+    const hasMissingLikedStreams = (library.likedSongs || []).some((t) => t && !t.spotifyStreams);
+    if (!hasMissingLikedStreams) return;
+    const timer = setTimeout(() => {
+      refreshLibrary().catch(() => {});
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [library.likedSongs, refreshLibrary]);
+
   const downloadedIds = useMemo(
     () => new Set(offlineStatus.downloadedIds || []),
     [offlineStatus.downloadedIds]

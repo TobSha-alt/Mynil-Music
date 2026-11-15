@@ -148,6 +148,7 @@ class LibraryStore {
             ...(parsed.preferences || {}),
           },
         };
+        this.syncKnownStreamCounts();
       } else {
         this.save();
       }
@@ -170,7 +171,48 @@ class LibraryStore {
   }
 
   getAll() {
+    this.syncKnownStreamCounts();
     return this.state;
+  }
+
+  syncKnownStreamCounts() {
+    const byId = new Map();
+    const byKey = new Map();
+    const allLists = [
+      this.state.likedSongs || [],
+      this.state.history || [],
+      ...(this.state.playlists || []).map((p) => p?.tracks || []),
+    ];
+    for (const list of allLists) {
+      for (const t of list) {
+        const streams = Number(t?.spotifyStreams || 0);
+        if (streams > 0) {
+          if (t.videoId && !byId.has(t.videoId)) byId.set(t.videoId, streams);
+          const key = getTrackIdentityKey(t);
+          if (key && (!byKey.has(key) || byKey.get(key) < streams)) byKey.set(key, streams);
+        }
+      }
+    }
+    if (byId.size === 0 && byKey.size === 0) return false;
+    let changed = false;
+    const apply = (arr) =>
+      (arr || []).map((t) => {
+        if (!t || t.spotifyStreams) return t;
+        const matched = (t.videoId && byId.get(t.videoId)) || byKey.get(getTrackIdentityKey(t)) || 0;
+        if (matched > 0) {
+          changed = true;
+          return { ...t, spotifyStreams: matched };
+        }
+        return t;
+      });
+    this.state.likedSongs = apply(this.state.likedSongs);
+    this.state.history = apply(this.state.history);
+    this.state.playlists = (this.state.playlists || []).map((p) => ({
+      ...p,
+      tracks: apply(p.tracks),
+    }));
+    if (changed) this.save();
+    return changed;
   }
 
   resetToDefault() {

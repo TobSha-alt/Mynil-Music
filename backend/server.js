@@ -481,6 +481,7 @@ async function handleApi(req, res, urlObj) {
               lib.likedSongs = apply(lib.likedSongs);
               lib.history = apply(lib.history);
               lib.playlists = (lib.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
+              store.syncKnownStreamCounts();
               store.save();
             }
           }
