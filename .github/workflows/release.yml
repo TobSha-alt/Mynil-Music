@@ -99,6 +99,8 @@ jobs:
           mkdir -p release dmg_stage
           cp -R Mynil.app dmg_stage/
           cp -R backend dist package.json dmg_stage/Mynil.app/Contents/Resources/ 2>/dev/null || true
+          xattr -cr dmg_stage/Mynil.app
+          codesign --force --deep --sign - dmg_stage/Mynil.app
           ln -s /Applications dmg_stage/Applications
           hdiutil create -volname "Mynil Music" -srcfolder dmg_stage -ov -format UDZO "release/Mynil-${{ steps.ver.outputs.version }}-macOS.dmg"
 

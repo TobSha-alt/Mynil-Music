@@ -1,6 +1,6 @@
 {
   "name": "mynil-music",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Mynil Music — Instant YouTube-powered Music & Music Video Streaming App",
   "main": "backend/server.js",
   "author": "Toby",
