@@ -1,12 +1,12 @@
 {
   "name": "mynil-music",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Mynil Music — Instant YouTube-powered Music & Music Video Streaming App",
   "main": "backend/server.js",
   "author": "Toby",
   "private": true,
   "sona": {
-    "githubRepo": "TobSha-alt/Sona"
+    "githubRepo": "TobSha-alt/Mynil-Music"
   },
   "scripts": {
     "dev:server": "node backend/server.js",
