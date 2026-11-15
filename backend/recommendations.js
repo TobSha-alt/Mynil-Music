@@ -379,22 +379,7 @@ async function resolveDeezerTracksToYtm(dzTracks, maxCount = 6) {
 
 async function enrichTracksFast(tracks) {
   if (!tracks.length) return tracks;
-  const idx = await spotify.loadListenersIndex().catch(() => new Map());
-  const chunks = [];
-  for (let i = 0; i < tracks.length; i += 6) {
-    chunks.push(tracks.slice(i, i + 6));
-  }
-  const enrichedChunks = await Promise.all(
-    chunks.map((chunk) => {
-      const hasKnownArtists = chunk.filter((t) => {
-        const name = normalizeText(t.artists?.[0]?.name || t.artist?.split(',')[0] || '');
-        return idx.has(name);
-      });
-      if (!hasKnownArtists.length) return Promise.resolve(chunk);
-      return spotify.enrichTracksWithSpotifyStreams(chunk).catch(() => chunk);
-    })
-  );
-  return enrichedChunks.flat();
+  return spotify.enrichTracksWithSpotifyStreams(tracks).catch(() => tracks);
 }
 
 async function getBasedOnLastListened(history = [], { refresh = false } = {}) {
@@ -731,7 +716,7 @@ async function getMoreSongsYouMightLike(libraryState, { excludeIds = new Set(), 
 
   const [upNextResults, artistResults] = await Promise.all([
     Promise.all(
-      seeds.map((s) => ytm.getUpNext(s.videoId).catch(() => ({ tracks: [] })))
+      seeds.map((s) => ytm.getUpNext(s.videoId, null, { skipSpotifyEnrich: true }).catch(() => ({ tracks: [] })))
     ),
     Promise.all(
       followed.slice(0, 2).map((a) =>

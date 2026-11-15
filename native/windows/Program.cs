@@ -39,7 +39,8 @@ internal sealed class SonaForm : Form
 
     public SonaForm()
     {
-        Text = "Mynil Music";
+        var baseDir = AppContext.BaseDirectory ?? "";
+        Text = baseDir.Contains("Mono", StringComparison.OrdinalIgnoreCase) ? "Mynil Mono" : "Mynil Music";
         Width = 1420;
         Height = 900;
         MinimumSize = new Size(1020, 680);
@@ -223,19 +224,6 @@ internal sealed class SonaForm : Form
         {
             ShowFatal($"Failed to initialize WebView2:\n{ex.Message}");
         }
-    }
-
-    private const int WM_SYSCOMMAND = 0x0112;
-    private const int SC_MAXIMIZE = 0xF030;
-
-    protected override void WndProc(ref Message m)
-    {
-        if (m.Msg == WM_SYSCOMMAND && ((int)m.WParam & 0xFFF0) == SC_MAXIMIZE)
-        {
-            SetFullScreen(true);
-            return;
-        }
-        base.WndProc(ref m);
     }
 
     private void SetFullScreen(bool fullScreen)

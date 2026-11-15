@@ -19,6 +19,7 @@ export default function PlaylistView({
     playTrack,
     createPlaylist,
     deletePlaylist,
+    refreshLibrary,
     isOnline,
     downloadedIds,
     downloadingIds,
@@ -29,6 +30,12 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(mode === 'ytm');
   const [filterText, setFilterText] = useState('');
   const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    if (mode === 'liked' || mode === 'custom') {
+      refreshLibrary?.().catch(() => {});
+    }
+  }, [mode, playlistId, refreshLibrary]);
 
   useEffect(() => {
     if (mode !== 'ytm' || !playlistId) {

@@ -360,7 +360,7 @@ async function search(query, filter = 'all') {
         if (parsed) items.push(parsed);
       }
     }
-    if (filter === 'songs') {
+    if (filter === 'songs' || filter === 'videos') {
       return { items: await spotify.enrichTracksWithSpotifyStreams(items) };
     }
     if (filter === 'artists') {
@@ -505,6 +505,13 @@ async function search(query, filter = 'all') {
     enrichTasks.push(
       spotify.enrichTracksWithSpotifyStreams(songs).then((enriched) => {
         songs.splice(0, songs.length, ...enriched);
+      }).catch(() => {})
+    );
+  }
+  if (videos.length > 0) {
+    enrichTasks.push(
+      spotify.enrichTracksWithSpotifyStreams(videos).then((enriched) => {
+        videos.splice(0, videos.length, ...enriched);
       }).catch(() => {})
     );
   }
@@ -673,7 +680,7 @@ async function getArtist(browseId) {
     }
   }
 
-  const enrichedTopSongs = topSongs.map((t) => {
+  const mappedTopSongs = topSongs.map((t) => {
     const durMatch = durationByVid.get(t.videoId) || durationByTitle.get((t.title || '').toLowerCase());
     const streams = spBundle?.songsEntry ? spotify.matchStreamCount(t.title, spBundle.songsEntry) : null;
     return {
@@ -683,6 +690,7 @@ async function getArtist(browseId) {
       ...(streams ? { spotifyStreams: streams } : {}),
     };
   });
+  const enrichedTopSongs = await spotify.enrichTracksWithSpotifyStreams(mappedTopSongs, name).catch(() => mappedTopSongs);
 
   // Ensure ALL related artists have crisp working portraits + Spotify monthly listeners
   await Promise.all(

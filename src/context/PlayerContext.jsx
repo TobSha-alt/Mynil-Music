@@ -206,8 +206,10 @@ export function PlayerProvider({ children }) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const ctx = new AudioCtx();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.82;
+      analyser.fftSize = 1024;
+      analyser.minDecibels = -85;
+      analyser.maxDecibels = -10;
+      analyser.smoothingTimeConstant = 0.45;
 
       const eq = EQ_PRESETS[library.preferences?.eqPreset || 'flat'] || EQ_PRESETS.flat;
       const lowFilter = ctx.createBiquadFilter();
@@ -809,6 +811,10 @@ export function PlayerProvider({ children }) {
     if (!audio) return;
 
     const onPlay = () => {
+      ensureAudioAnalyser();
+      if (audioCtxRef.current?.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
       videoBufferingPauseRef.current = false;
       setIsPlaying(true);
     };

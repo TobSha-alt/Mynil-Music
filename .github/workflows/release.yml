@@ -1,4 +1,4 @@
-name: Build & Release Mynil Music
+name: Build & Release Mynil Music & Mynil Mono
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.0.1)'
+        description: 'Release version (e.g. 1.0.7)'
         required: true
-        default: '1.0.0'
+        default: '1.0.7'
 
 permissions:
   contents: write
@@ -37,15 +37,11 @@ jobs:
           if ("${{ inputs.version }}") { $v = "${{ inputs.version }}".TrimStart('v') }
           echo "version=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Install & Build Frontend
-        run: |
-          npm ci
-          npm run build
+      - name: Install Dependencies
+        run: npm ci
 
-      - name: Publish Windows App
-        run: dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o Mynil-win
-
-      - name: Build Windows Installer (Inno Setup)
+      - name: Find or Install Inno Setup
+        id: inno
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
@@ -59,11 +55,29 @@ jobs:
               $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
             }
           }
-          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" installer\windows\Sona.iss
+          echo "iscc=$iscc" >> $env:GITHUB_OUTPUT
+
+      - name: Build Mynil Music (Windows)
+        shell: pwsh
+        run: |
+          npm run build
+          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o Mynil-win
+          & "${{ steps.inno.outputs.iscc }}" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\windows\Sona.iss
+
+      - name: Build Mynil Mono (Windows)
+        shell: pwsh
+        run: |
+          Rename-Item -Path src -NewName src-color
+          Rename-Item -Path src-mono -NewName src
+          npm run build
+          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o MynilMono-win
+          & "${{ steps.inno.outputs.iscc }}" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\windows\SonaMono.iss
+          Rename-Item -Path src -NewName src-mono
+          Rename-Item -Path src-color -NewName src
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: windows-installers
           path: release/*.exe
 
   build-macos:
@@ -84,29 +98,49 @@ jobs:
           if [ -n "$IN_VER" ]; then V="${IN_VER#v}"; fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Install & Build Frontend
-        run: |
-          npm ci
-          npm run build
+      - name: Install Dependencies
+        run: npm ci
 
-      - name: Build macOS Mynil.app & DMG Installer
+      - name: Setup Python Pillow for Icons
         run: |
           python3 -m venv /tmp/mynil-venv
           /tmp/mynil-venv/bin/pip install --quiet pillow
+
+      - name: Build Mynil Music (macOS DMG)
+        run: |
           export PATH="/tmp/mynil-venv/bin:$PATH"
+          npm run build
           chmod +x native/build_app.sh
           ./native/build_app.sh
           mkdir -p release dmg_stage
-          cp -R Mynil.app dmg_stage/
-          cp -R backend dist package.json dmg_stage/Mynil.app/Contents/Resources/ 2>/dev/null || true
-          xattr -cr dmg_stage/Mynil.app
-          codesign --force --deep --sign - dmg_stage/Mynil.app
+          cp -R "Mynil.app" dmg_stage/
+          cp -R backend dist package.json "dmg_stage/Mynil.app/Contents/Resources/" 2>/dev/null || true
+          xattr -cr "dmg_stage/Mynil.app"
+          codesign --force --deep --sign - "dmg_stage/Mynil.app"
           ln -s /Applications dmg_stage/Applications
           hdiutil create -volname "Mynil Music" -srcfolder dmg_stage -ov -format UDZO "release/Mynil-${{ steps.ver.outputs.version }}-macOS.dmg"
 
+      - name: Build Mynil Mono (macOS DMG)
+        run: |
+          export PATH="/tmp/mynil-venv/bin:$PATH"
+          mv src src-color
+          mv src-mono src
+          npm run build
+          chmod +x native/build_app_mono.sh
+          ./native/build_app_mono.sh
+          mkdir -p release dmg_stage_mono
+          cp -R "Mynil Mono.app" dmg_stage_mono/
+          cp -R backend dist package.json "dmg_stage_mono/Mynil Mono.app/Contents/Resources/" 2>/dev/null || true
+          xattr -cr "dmg_stage_mono/Mynil Mono.app"
+          codesign --force --deep --sign - "dmg_stage_mono/Mynil Mono.app"
+          ln -s /Applications dmg_stage_mono/Applications
+          hdiutil create -volname "Mynil Mono" -srcfolder dmg_stage_mono -ov -format UDZO "release/Mynil-Mono-${{ steps.ver.outputs.version }}-macOS.dmg"
+          mv src src-mono
+          mv src-color src
+
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-installer
+          name: macos-installers
           path: release/*.dmg
 
   release:
@@ -123,5 +157,5 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/windows-installer/*.exe
-            artifacts/macos-installer/*.dmg
+            artifacts/windows-installers/*.exe
+            artifacts/macos-installers/*.dmg

@@ -24,6 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         if let envRoot = ProcessInfo.processInfo.environment["SONA_ROOT"], !envRoot.isEmpty {
             return envRoot
         }
+        if let resPath = Bundle.main.resourcePath,
+           FileManager.default.fileExists(atPath: resPath + "/backend/server.js") {
+            return resPath
+        }
         // Sona.app sits directly inside the sona project folder
         let bundleDir = Bundle.main.bundleURL.deletingLastPathComponent().path
         if FileManager.default.fileExists(atPath: bundleDir + "/backend/server.js") {
@@ -118,7 +122,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
             backing: .buffered,
             defer: false
         )
-        window.title = "Mynil Music"
+        let appName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Mynil Music"
+        window.title = appName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0.027, green: 0.027, blue: 0.043, alpha: 1.0)
@@ -130,6 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         let config = WKWebViewConfiguration()
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsAirPlayForMediaPlayback = true
+        config.preferences.isElementFullscreenEnabled = true
         config.preferences.setValue(false, forKey: "developerExtrasEnabled")
 
         webView = WKWebView(frame: frame, configuration: config)
@@ -159,14 +165,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
     func setupMainMenu() {
         let mainMenu = NSMenu()
 
+        let appName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Mynil Music"
         // App Menu
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Mynil Music", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Hide Mynil", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Quit Mynil", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
 
         // Edit Menu (enables Cmd+C/V/X/A in search inputs)

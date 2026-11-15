@@ -207,13 +207,6 @@ export default function TrackRow({
               <span className="xl:hidden">{formatCount(track.spotifyStreams)}</span>
             </span>
           )
-        ) : track.views ? (
-          <span
-            className="text-xs font-mono tabular-nums text-zinc-500"
-            title={`YouTube: ${track.views}`}
-          >
-            YT · {compact ? formatCompactViews(track.views) : track.views}
-          </span>
         ) : null}
         {library.preferences?.showPlayCounts && streamCount > 0 && !compact && (
           <span

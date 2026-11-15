@@ -122,7 +122,7 @@ class StatsScanner {
         if (!Array.isArray(list) || list.length === 0) return;
         for (let i = 0; i < list.length; i += 25) {
           const chunk = list.slice(i, i + 25);
-          const enriched = await spotify.enrichTracksWithSpotifyStreams(chunk).catch(() => chunk);
+          const enriched = await spotify.enrichTracksWithSpotifyStreams(chunk, '', { forceRefresh: true }).catch(() => chunk);
           for (let j = 0; j < chunk.length; j++) {
             const nextStreams = enriched[j]?.spotifyStreams;
             if (nextStreams && nextStreams !== list[i + j]?.spotifyStreams) {

@@ -515,7 +515,16 @@ async function handleApi(req, res, urlObj) {
     }
 
     if (pathname === '/api/library/like' && req.method === 'POST') {
-      const body = await readJsonBody(req);
+      let body = await readJsonBody(req);
+      if (body && body.videoId && !body.spotifyStreams) {
+        try {
+          const [enriched] = await Promise.race([
+            spotify.enrichTracksWithSpotifyStreams([body]),
+            new Promise((resolve) => setTimeout(() => resolve([body]), 2000)),
+          ]);
+          if (enriched?.spotifyStreams) body = enriched;
+        } catch {}
+      }
       return sendJson(res, 200, store.toggleLike(body));
     }
 
@@ -641,7 +650,17 @@ async function handleApi(req, res, urlObj) {
 
     if (pathname === '/api/library/playlist/add' && req.method === 'POST') {
       const body = await readJsonBody(req);
-      return sendJson(res, 200, store.addToPlaylist(body.playlistId, body.track));
+      let track = body.track;
+      if (track && track.videoId && !track.spotifyStreams) {
+        try {
+          const [enriched] = await Promise.race([
+            spotify.enrichTracksWithSpotifyStreams([track]),
+            new Promise((resolve) => setTimeout(() => resolve([track]), 2000)),
+          ]);
+          if (enriched?.spotifyStreams) track = enriched;
+        } catch {}
+      }
+      return sendJson(res, 200, store.addToPlaylist(body.playlistId, track));
     }
 
     if (pathname === '/api/library/playlist/remove' && req.method === 'POST') {
@@ -655,7 +674,16 @@ async function handleApi(req, res, urlObj) {
     }
 
     if (pathname === '/api/library/play' && req.method === 'POST') {
-      const body = await readJsonBody(req);
+      let body = await readJsonBody(req);
+      if (body && body.videoId && !body.spotifyStreams) {
+        try {
+          const [enriched] = await Promise.race([
+            spotify.enrichTracksWithSpotifyStreams([body]),
+            new Promise((resolve) => setTimeout(() => resolve([body]), 2000)),
+          ]);
+          if (enriched?.spotifyStreams) body = enriched;
+        } catch {}
+      }
       return sendJson(res, 200, store.recordPlay(body));
     }
 

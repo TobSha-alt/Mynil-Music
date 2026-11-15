@@ -140,6 +140,7 @@ class LibraryStore {
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf8');
         const parsed = JSON.parse(raw);
+        this._lastDiskMtime = fs.statSync(this.filePath).mtimeMs;
         this.state = {
           ...structuredClone(DEFAULT_STATE),
           ...parsed,
@@ -163,6 +164,9 @@ class LibraryStore {
     const tmp = `${this.filePath}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
     fs.renameSync(tmp, this.filePath);
+    try {
+      this._lastDiskMtime = fs.statSync(this.filePath).mtimeMs;
+    } catch {}
     for (const cb of this._onSaveListeners) {
       try {
         cb(this.state);
@@ -171,6 +175,24 @@ class LibraryStore {
   }
 
   getAll() {
+    if (this.filePath) {
+      try {
+        const mtime = fs.statSync(this.filePath).mtimeMs;
+        if (this._lastDiskMtime && mtime > this._lastDiskMtime + 50) {
+          const raw = fs.readFileSync(this.filePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          this._lastDiskMtime = mtime;
+          this.state = {
+            ...structuredClone(DEFAULT_STATE),
+            ...parsed,
+            preferences: {
+              ...DEFAULT_STATE.preferences,
+              ...(parsed.preferences || {}),
+            },
+          };
+        }
+      } catch {}
+    }
     this.syncKnownStreamCounts();
     return this.state;
   }
@@ -228,6 +250,7 @@ class LibraryStore {
       this.state.likedSongs = this.state.likedSongs.filter((t) => !tracksMatch(t, track));
     } else {
       this.state.likedSongs.unshift({ ...track, likedAt: Date.now() });
+      this.syncKnownStreamCounts();
     }
     this.save();
     return this.state;
@@ -259,16 +282,23 @@ class LibraryStore {
       'from-sky-500 via-blue-600 to-indigo-900',
       'from-violet-600 via-fuchsia-600 to-indigo-900',
     ];
+    const uniqueTracks = [];
+    for (const t of Array.isArray(initialTracks) ? initialTracks : []) {
+      if (t?.videoId && !uniqueTracks.some((u) => tracksMatch(u, t))) {
+        uniqueTracks.push(t);
+      }
+    }
     const pl = {
       id: `pl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: (name || 'Untitled Playlist').trim(),
       description: (description || '').trim(),
       gradient: gradient || gradients[this.state.playlists.length % gradients.length],
-      tracks: Array.isArray(initialTracks) ? initialTracks : [],
+      tracks: uniqueTracks,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     this.state.playlists.unshift(pl);
+    this.syncKnownStreamCounts();
     this.save();
     return { state: this.state, playlist: pl };
   }
@@ -324,6 +354,7 @@ class LibraryStore {
     if (!pl.tracks.some((t) => t.videoId === track.videoId)) {
       pl.tracks.push(track);
       pl.updatedAt = Date.now();
+      this.syncKnownStreamCounts();
       this.save();
     }
     return this.state;

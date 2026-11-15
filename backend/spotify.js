@@ -11,80 +11,101 @@ const CACHE_BASE =
 const CACHE_DIR = CACHE_BASE;
 fs.mkdirSync(CACHE_DIR, { recursive: true });
 
+// Remove legacy YouTube stream fallback cache if present
+try {
+  const legacyYtmFile = path.join(CACHE_DIR, 'ytm-streams.json');
+  if (fs.existsSync(legacyYtmFile)) fs.unlinkSync(legacyYtmFile);
+} catch {}
+
 const LISTENERS_CACHE_FILE = path.join(CACHE_DIR, 'kworb-listeners.json');
-const YTM_STREAMS_CACHE_FILE = path.join(CACHE_DIR, 'ytm-streams.json');
-const TTL_MS = 6 * 60 * 60 * 1000;
+const TRACK_STREAMS_CACHE_FILE = path.join(CACHE_DIR, 'spotify-track-streams.json');
+const ARTIST_BUNDLES_CACHE_FILE = path.join(CACHE_DIR, 'spotify-artist-bundles.json');
+
+// 30-day monthly refresh TTL
+const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const GOOGLEBOT_UA = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-let listenersIndex = null; // Map<normalizedName, { spotifyId, name, listenersNum, listenersText }>
+const HASH_SEARCH_DESKTOP = 'fcad5a3e0d5af727fb76966f06971c19cfa2275e6ff7671196753e008611873c';
+const HASH_GET_TRACK = 'e101aead6d78faa11d75bec5e36385a07b2f1c4a0420932d374d89ee17c70dd6';
+const HASH_ARTIST_OVERVIEW = '35648a112beb1794e39ab931365f6ae4a8d45e65396d641eeda94e4003d41497';
+
+let listenersIndex = null;
 let listenersPromise = null;
 let kworbDownUntil = 0;
 
-const artistIdCache = new Map(); // normalizedName -> spotifyId | null
-const artistPageCache = new Map(); // spotifyId -> { monthlyListeners, avatarUrl, expires }
-const artistSongsCache = new Map(); // spotifyId -> { songs: Map<normTitle, { title, streams }>, rawList: [], expires }
-const deezerAvatarCache = new Map(); // normalizedName -> url | null
-const ytmStreamsCache = new Map(); // videoId -> number
+let spotifyToken = null;
+let spotifyTokenExpiresAt = 0;
+let spotifyTokenPromise = null;
+
+const artistIdCache = new Map();
+const artistPageCache = new Map();
+const artistSongsCache = new Map();
+const deezerAvatarCache = new Map();
+
+// Persistent disk-backed Spotify stream caches (30-day monthly TTL)
+// key ("artist::title" or "vid:<videoId>") -> { streams: number, updatedAt: number }
+const trackStreamsCache = new Map();
+// key (normalizedArtist) -> { spotifyId, monthlyListeners, avatarUrl, songs: { [normTitle]: number }, updatedAt }
+const artistBundlesDiskCache = new Map();
 
 try {
-  if (fs.existsSync(YTM_STREAMS_CACHE_FILE)) {
-    const raw = JSON.parse(fs.readFileSync(YTM_STREAMS_CACHE_FILE, 'utf8'));
+  if (fs.existsSync(TRACK_STREAMS_CACHE_FILE)) {
+    const raw = JSON.parse(fs.readFileSync(TRACK_STREAMS_CACHE_FILE, 'utf8'));
     if (raw && typeof raw === 'object') {
       for (const [k, v] of Object.entries(raw)) {
-        const num = Number(v);
-        if (k && num > 0) ytmStreamsCache.set(k, num);
+        if (v && typeof v === 'object' && Number(v.streams) > 0) {
+          trackStreamsCache.set(k, {
+            streams: Number(v.streams),
+            updatedAt: Number(v.updatedAt) || Date.now(),
+          });
+        } else if (Number(v) > 0) {
+          trackStreamsCache.set(k, { streams: Number(v), updatedAt: Date.now() });
+        }
       }
     }
   }
 } catch {}
 
-function saveYtmStreamsCache() {
-  try {
-    const obj = Object.fromEntries(ytmStreamsCache.entries());
-    fs.writeFileSync(YTM_STREAMS_CACHE_FILE, JSON.stringify(obj), 'utf8');
-  } catch {}
-}
-
-async function fetchYtmTrackStreamCount(videoId) {
-  if (!videoId) return 0;
-  if (ytmStreamsCache.has(videoId)) return ytmStreamsCache.get(videoId) || 0;
-  try {
-    const res = await fetch('https://music.youtube.com/youtubei/v1/player?prettyPrint=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-        Origin: 'https://music.youtube.com',
-        Referer: 'https://music.youtube.com/',
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'WEB_REMIX',
-            clientVersion: '1.20241106.01.00',
-            hl: 'en',
-            gl: 'US',
-          },
-        },
-        videoId,
-      }),
-      signal: AbortSignal.timeout(3500),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const count =
-        Number(data?.videoDetails?.viewCount) ||
-        Number(data?.microformat?.microformatDataRenderer?.viewCount) ||
-        0;
-      if (count > 0) {
-        ytmStreamsCache.set(videoId, count);
-        return count;
+try {
+  if (fs.existsSync(ARTIST_BUNDLES_CACHE_FILE)) {
+    const raw = JSON.parse(fs.readFileSync(ARTIST_BUNDLES_CACHE_FILE, 'utf8'));
+    if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) {
+        if (v && typeof v === 'object') {
+          artistBundlesDiskCache.set(k, v);
+        }
       }
     }
-  } catch {}
-  return 0;
+  }
+} catch {}
+
+let saveTracksTimer = null;
+function scheduleSaveTrackStreamsCache() {
+  if (saveTracksTimer) return;
+  saveTracksTimer = setTimeout(() => {
+    saveTracksTimer = null;
+    try {
+      const obj = Object.fromEntries(trackStreamsCache.entries());
+      fs.writeFileSync(TRACK_STREAMS_CACHE_FILE, JSON.stringify(obj), 'utf8');
+    } catch {}
+  }, 250);
+  if (saveTracksTimer.unref) saveTracksTimer.unref();
+}
+
+let saveArtistsTimer = null;
+function scheduleSaveArtistBundlesCache() {
+  if (saveArtistsTimer) return;
+  saveArtistsTimer = setTimeout(() => {
+    saveArtistsTimer = null;
+    try {
+      const obj = Object.fromEntries(artistBundlesDiskCache.entries());
+      fs.writeFileSync(ARTIST_BUNDLES_CACHE_FILE, JSON.stringify(obj), 'utf8');
+    } catch {}
+  }, 250);
+  if (saveArtistsTimer.unref) saveArtistsTimer.unref();
 }
 
 function normalizeName(str) {
@@ -104,12 +125,25 @@ function normalizeTrackTitle(str) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' and ')
-    .replace(/\((feat\.|ft\.|with|remaster|remastered|official|audio|video|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live)[^)]*\)/gi, '')
+    .replace(
+      /\((feat\.|ft\.|with|remaster|remastered|official|audio|video|music video|lyric|lyrics|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live|anniversary)[^)]*\)/gi,
+      ''
+    )
     .replace(/\[[^\]]*\]/g, '')
-    .replace(/\s*-\s*(remaster|remastered|single version|album version|radio edit|mono|stereo|\d{4}\s*remaster).*$/i, '')
+    .replace(
+      /\s*-\s*(remaster|remastered|single version|album version|radio edit|mono|stereo|\d{4}\s*remaster).*$/i,
+      ''
+    )
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function getTrackCacheKey(title, artist) {
+  const nt = normalizeTrackTitle(title);
+  const na = normalizeName(String(artist || '').split(/,|&|\bfeat\.?\b|\bft\.?\b/i)[0] || artist);
+  if (!nt) return '';
+  return `${na}::${nt}`;
 }
 
 function formatCompactListeners(num) {
@@ -124,12 +158,144 @@ function formatCompactListeners(num) {
   return `${num.toLocaleString()} monthly listeners`;
 }
 
+async function getSpotifyAccessToken(forceRefresh = false) {
+  if (!forceRefresh && spotifyToken && Date.now() < spotifyTokenExpiresAt - 120_000) {
+    return spotifyToken;
+  }
+  if (!forceRefresh && spotifyTokenPromise) return spotifyTokenPromise;
+
+  spotifyTokenPromise = (async () => {
+    const embedUrls = [
+      'https://open.spotify.com/embed/artist/6XyY86QOPPrYVGvF9ch6wz',
+      'https://open.spotify.com/embed/track/2nLtzopw4rPReszdYBJU6h',
+    ];
+    for (const url of embedUrls) {
+      try {
+        const res = await fetch(url, {
+          headers: { 'User-Agent': BROWSER_UA },
+          signal: AbortSignal.timeout(4500),
+        });
+        if (!res.ok) continue;
+        const html = await res.text();
+        const tokMatch = html.match(/"accessToken":"([^"]+)"/);
+        if (tokMatch?.[1]) {
+          spotifyToken = tokMatch[1];
+          const expMatch = html.match(/"accessTokenExpirationTimestampMs":(\d+)/);
+          spotifyTokenExpiresAt = expMatch ? Number(expMatch[1]) : Date.now() + 30 * 60 * 1000;
+          return spotifyToken;
+        }
+      } catch {}
+    }
+    return null;
+  })().finally(() => {
+    spotifyTokenPromise = null;
+  });
+
+  return spotifyTokenPromise;
+}
+
+async function spotifyPathfinder(operationName, variables, sha256Hash, retry = true) {
+  const token = await getSpotifyAccessToken();
+  if (!token) return null;
+  const url =
+    'https://api-partner.spotify.com/pathfinder/v1/query?operationName=' +
+    encodeURIComponent(operationName) +
+    '&variables=' +
+    encodeURIComponent(JSON.stringify(variables)) +
+    '&extensions=' +
+    encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash } }));
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': BROWSER_UA,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(4500),
+    });
+    if (res.status === 401 && retry) {
+      await getSpotifyAccessToken(true);
+      return spotifyPathfinder(operationName, variables, sha256Hash, false);
+    }
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSpotifyTrackPlaycount(title, artist) {
+  const cleanTitle = normalizeTrackTitle(title);
+  if (!cleanTitle) return 0;
+  const primaryArtist = String(artist || '')
+    .split(/,|&|\bfeat\.?\b|\bft\.?\b/i)[0]
+    .trim();
+  const normTargetArtist = normalizeName(primaryArtist);
+
+  const searchData = await spotifyPathfinder(
+    'searchDesktop',
+    {
+      searchTerm: `${title} ${primaryArtist}`.trim(),
+      offset: 0,
+      limit: 6,
+      numberOfTopResults: 3,
+      includeAudiobooks: false,
+      includeArtistHasConcertsField: false,
+      includePreReleases: false,
+      includeLocalConcertsField: false,
+    },
+    HASH_SEARCH_DESKTOP
+  );
+
+  const trackItems = searchData?.data?.searchV2?.tracksV2?.items || [];
+  if (!trackItems.length) return 0;
+
+  let chosenUri = null;
+  for (const entry of trackItems) {
+    const d = entry?.item?.data;
+    if (!d?.uri || !d.uri.startsWith('spotify:track:')) continue;
+    const candTitle = normalizeTrackTitle(d.name || '');
+    const candArtists = (d.artists?.items || []).map((a) => normalizeName(a?.profile?.name || ''));
+    const artistMatches =
+      !normTargetArtist ||
+      candArtists.some(
+        (ca) => ca && (ca === normTargetArtist || ca.includes(normTargetArtist) || normTargetArtist.includes(ca))
+      );
+    const titleMatches =
+      candTitle === cleanTitle || candTitle.startsWith(cleanTitle) || cleanTitle.startsWith(candTitle);
+    if (artistMatches && titleMatches) {
+      chosenUri = d.uri;
+      break;
+    }
+  }
+  if (!chosenUri) {
+    // Fallback to first track if artist matches
+    for (const entry of trackItems) {
+      const d = entry?.item?.data;
+      if (!d?.uri?.startsWith('spotify:track:')) continue;
+      const candArtists = (d.artists?.items || []).map((a) => normalizeName(a?.profile?.name || ''));
+      if (
+        !normTargetArtist ||
+        candArtists.some((ca) => ca && (ca === normTargetArtist || ca.includes(normTargetArtist) || normTargetArtist.includes(ca)))
+      ) {
+        chosenUri = d.uri;
+        break;
+      }
+    }
+  }
+  if (!chosenUri) chosenUri = trackItems[0]?.item?.data?.uri || null;
+  if (!chosenUri) return 0;
+
+  const trackData = await spotifyPathfinder('getTrack', { uri: chosenUri }, HASH_GET_TRACK);
+  const playcount = Number(trackData?.data?.trackUnion?.playcount || 0);
+  return playcount > 0 ? playcount : 0;
+}
+
 async function loadListenersIndex({ forceRefresh = false } = {}) {
   if (!forceRefresh && listenersIndex) return listenersIndex;
   if (!forceRefresh && listenersPromise) return listenersPromise;
 
   listenersPromise = (async () => {
-    // Try disk cache first for 0ms startup
     if (!forceRefresh) {
       try {
         if (fs.existsSync(LISTENERS_CACHE_FILE)) {
@@ -188,7 +354,6 @@ async function loadListenersIndex({ forceRefresh = false } = {}) {
       }
     }
 
-    // Fallback to stale disk cache if network fetch failed
     if (map.size === 0) {
       try {
         if (fs.existsSync(LISTENERS_CACHE_FILE)) {
@@ -215,34 +380,123 @@ async function findSpotifyArtistId(artistName) {
   const key = normalizeName(artistName);
   if (!key) return null;
 
+  const diskBundle = artistBundlesDiskCache.get(key);
+  if (diskBundle?.spotifyId) return diskBundle.spotifyId;
+
   const idx = await loadListenersIndex();
   const hit = idx.get(key);
-  if (hit) return hit.spotifyId;
+  if (hit?.spotifyId) return hit.spotifyId;
 
   if (artistIdCache.has(key)) return artistIdCache.get(key);
 
   let foundId = null;
+
+  // 1. Try Spotify Pathfinder searchDesktop first
   try {
-    const q = encodeURIComponent(`artist:"${artistName}"`);
-    const mb = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${q}&fmt=json&limit=3`, {
-      headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' },
-    }).then((r) => (r.ok ? r.json() : null));
-
-    const candidate = mb?.artists?.[0];
-    if (candidate?.id) {
-      const detail = await fetch(
-        `https://musicbrainz.org/ws/2/artist/${candidate.id}?inc=url-rels&fmt=json`,
-        { headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' } }
-      ).then((r) => (r.ok ? r.json() : null));
-
-      const spRel = detail?.relations?.find((r) => r.url?.resource?.includes('open.spotify.com/artist/'));
-      const m = spRel?.url?.resource?.match(/artist\/([a-zA-Z0-9]+)/);
-      if (m) foundId = m[1];
+    const searchData = await spotifyPathfinder(
+      'searchDesktop',
+      {
+        searchTerm: artistName,
+        offset: 0,
+        limit: 5,
+        numberOfTopResults: 3,
+        includeAudiobooks: false,
+        includeArtistHasConcertsField: false,
+        includePreReleases: false,
+        includeLocalConcertsField: false,
+      },
+      HASH_SEARCH_DESKTOP
+    );
+    const artistItems = searchData?.data?.searchV2?.artists?.items || [];
+    for (const item of artistItems) {
+      const uri = item?.data?.uri || '';
+      const name = item?.data?.profile?.name || '';
+      if (uri.startsWith('spotify:artist:') && normalizeName(name) === key) {
+        foundId = uri.split(':')[2];
+        break;
+      }
+    }
+    if (!foundId && artistItems[0]?.data?.uri?.startsWith('spotify:artist:')) {
+      foundId = artistItems[0].data.uri.split(':')[2];
     }
   } catch {}
 
-  artistIdCache.set(key, foundId);
+  // 2. Fallback to MusicBrainz
+  if (!foundId) {
+    try {
+      const q = encodeURIComponent(`artist:"${artistName}"`);
+      const mb = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${q}&fmt=json&limit=3`, {
+        headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' },
+        signal: AbortSignal.timeout(3000),
+      }).then((r) => (r.ok ? r.json() : null));
+
+      const candidate = mb?.artists?.[0];
+      if (candidate?.id) {
+        const detail = await fetch(
+          `https://musicbrainz.org/ws/2/artist/${candidate.id}?inc=url-rels&fmt=json`,
+          {
+            headers: { 'User-Agent': 'SonaMusicApp/1.0 (local)' },
+            signal: AbortSignal.timeout(3000),
+          }
+        ).then((r) => (r.ok ? r.json() : null));
+
+        const spRel = detail?.relations?.find((r) => r.url?.resource?.includes('open.spotify.com/artist/'));
+        const m = spRel?.url?.resource?.match(/artist\/([a-zA-Z0-9]+)/);
+        if (m) foundId = m[1];
+      }
+    } catch {}
+  }
+
+  if (foundId) artistIdCache.set(key, foundId);
   return foundId;
+}
+
+async function fetchSpotifyArtistOverview(spotifyId, artistName = '') {
+  if (!spotifyId) return null;
+  const data = await spotifyPathfinder(
+    'queryArtistOverview',
+    { uri: `spotify:artist:${spotifyId}`, locale: '', includePrerelease: true },
+    HASH_ARTIST_OVERVIEW
+  );
+  const union = data?.data?.artistUnion;
+  if (!union) return null;
+
+  const listenersNum = Number(union?.stats?.monthlyListeners || 0);
+  const monthlyListeners = listenersNum > 0 ? formatCompactListeners(listenersNum) : '';
+  const avatarSources = union?.visuals?.avatarImage?.sources || [];
+  const avatarUrl = avatarSources[0]?.url || '';
+
+  const songs = new Map();
+  const rawList = [];
+  const songsObj = {};
+  const topTracks = union?.discography?.topTracks?.items || [];
+  const normArt = normalizeName(artistName || union?.profile?.name || '');
+
+  for (const item of topTracks) {
+    const tr = item?.track;
+    const title = tr?.name || '';
+    const streams = Number(tr?.playcount || 0);
+    if (!title || !streams) continue;
+    const norm = normalizeTrackTitle(title);
+    if (!norm) continue;
+    rawList.push({ title, norm, streams });
+    if (!songs.has(norm) || songs.get(norm).streams < streams) {
+      songs.set(norm, { title, streams });
+      songsObj[norm] = streams;
+    }
+    if (normArt) {
+      trackStreamsCache.set(`${normArt}::${norm}`, { streams, updatedAt: Date.now() });
+    }
+  }
+  if (rawList.length > 0) scheduleSaveTrackStreamsCache();
+
+  return {
+    monthlyListeners,
+    avatarUrl,
+    songs,
+    rawList,
+    songsObj,
+  };
 }
 
 async function fetchSpotifyArtistPage(spotifyId) {
@@ -256,6 +510,7 @@ async function fetchSpotifyArtistPage(spotifyId) {
   try {
     const res = await fetch(`https://open.spotify.com/artist/${spotifyId}`, {
       headers: { 'User-Agent': GOOGLEBOT_UA },
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const html = await res.text();
@@ -277,7 +532,7 @@ async function fetchSpotifyArtistPage(spotifyId) {
   } catch {}
 
   const result = { monthlyListeners, avatarUrl, expires: Date.now() + TTL_MS };
-  artistPageCache.set(spotifyId, result);
+  if (monthlyListeners || avatarUrl) artistPageCache.set(spotifyId, result);
   return result;
 }
 
@@ -289,7 +544,8 @@ async function fetchDeezerArtistAvatar(artistName) {
   let url = '';
   try {
     const res = await fetch(
-      `https://api.deezer.com/search/artist?q=${encodeURIComponent(artistName)}&limit=3`
+      `https://api.deezer.com/search/artist?q=${encodeURIComponent(artistName)}&limit=3`,
+      { signal: AbortSignal.timeout(3000) }
     );
     if (res.ok) {
       const data = await res.json();
@@ -300,52 +556,71 @@ async function fetchDeezerArtistAvatar(artistName) {
     }
   } catch {}
 
-  deezerAvatarCache.set(key, url);
+  if (url) deezerAvatarCache.set(key, url);
   return url;
 }
 
-async function fetchArtistSongsStreams(spotifyId) {
+async function fetchArtistSongsStreams(spotifyId, artistName = '') {
   if (!spotifyId) return null;
   const cached = artistSongsCache.get(spotifyId);
   if (cached && cached.expires > Date.now()) return cached;
-  if (Date.now() < kworbDownUntil) return null;
 
   const songs = new Map();
   const rawList = [];
-  try {
-    const res = await fetch(`https://kworb.net/spotify/artist/${spotifyId}_songs.html`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    if (res.ok) {
-      const html = await res.text();
-      const rows = html.matchAll(
-        /<tr><td class="text"><div><a[^>]*>([^<]+)<\/a><\/div><\/td><td>([\d,]+)<\/td>/g
-      );
-      for (const r of rows) {
-        const title = r[1]
-          .replace(/&amp;/g, '&')
-          .replace(/&#039;/g, "'")
-          .replace(/&quot;/g, '"')
-          .trim();
-        const streams = Number(r[2].replace(/,/g, '')) || 0;
-        if (!title || !streams) continue;
-        rawList.push({ title, norm: normalizeTrackTitle(title), streams });
-        const norm = normalizeTrackTitle(title);
-        if (norm && (!songs.has(norm) || songs.get(norm).streams < streams)) {
-          songs.set(norm, { title, streams });
+
+  // 1. Try Kworb full artist song table if Kworb is reachable
+  if (Date.now() >= kworbDownUntil) {
+    try {
+      const res = await fetch(`https://kworb.net/spotify/artist/${spotifyId}_songs.html`, {
+        signal: AbortSignal.timeout(1800),
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const rows = html.matchAll(
+          /<tr><td class="text"><div><a[^>]*>([^<]+)<\/a><\/div><\/td><td>([\d,]+)<\/td>/g
+        );
+        for (const r of rows) {
+          const title = r[1]
+            .replace(/&amp;/g, '&')
+            .replace(/&#039;/g, "'")
+            .replace(/&quot;/g, '"')
+            .trim();
+          const streams = Number(r[2].replace(/,/g, '')) || 0;
+          if (!title || !streams) continue;
+          const norm = normalizeTrackTitle(title);
+          if (!norm) continue;
+          rawList.push({ title, norm, streams });
+          if (!songs.has(norm) || songs.get(norm).streams < streams) {
+            songs.set(norm, { title, streams });
+          }
         }
-      }
-      if (rawList.length === 0) {
+        if (rawList.length === 0) kworbDownUntil = Date.now() + 60_000;
+      } else {
         kworbDownUntil = Date.now() + 60_000;
       }
-    } else {
+    } catch {
       kworbDownUntil = Date.now() + 60_000;
     }
-  } catch {
-    kworbDownUntil = Date.now() + 60_000;
   }
 
-  const entry = { songs, rawList, expires: Date.now() + TTL_MS };
+  // 2. Always supplement/fallback with Spotify Pathfinder queryArtistOverview
+  const overview = await fetchSpotifyArtistOverview(spotifyId, artistName);
+  if (overview?.rawList?.length) {
+    for (const item of overview.rawList) {
+      rawList.push(item);
+      if (!songs.has(item.norm) || songs.get(item.norm).streams < item.streams) {
+        songs.set(item.norm, { title: item.title, streams: item.streams });
+      }
+    }
+  }
+
+  const entry = {
+    songs,
+    rawList,
+    monthlyListeners: overview?.monthlyListeners || '',
+    avatarUrl: overview?.avatarUrl || '',
+    expires: Date.now() + TTL_MS,
+  };
   if (rawList.length > 0) {
     artistSongsCache.set(spotifyId, entry);
   }
@@ -357,12 +632,11 @@ function matchStreamCount(trackTitle, artistSongsEntry) {
   const norm = normalizeTrackTitle(trackTitle);
   if (!norm) return null;
 
-  const exact = artistSongsEntry.songs.get(norm);
+  const exact = artistSongsEntry.songs?.get(norm);
   if (exact) return exact.streams;
 
-  // Fuzzy prefix/substring match (prefer highest stream match)
   let best = null;
-  for (const item of artistSongsEntry.rawList) {
+  for (const item of artistSongsEntry.rawList || []) {
     if (!item.norm) continue;
     if (item.norm === norm || item.norm.startsWith(norm) || norm.startsWith(item.norm)) {
       if (!best || item.streams > best.streams) best = item;
@@ -372,23 +646,58 @@ function matchStreamCount(trackTitle, artistSongsEntry) {
 }
 
 async function getArtistSpotifyBundle(artistName, { forceRefresh = false } = {}) {
-  if (forceRefresh) {
-    artistPageCache.clear();
-    artistSongsCache.clear();
-  }
-  const idx = await loadListenersIndex({ forceRefresh });
   const key = normalizeName(artistName);
+  if (forceRefresh) {
+    artistPageCache.delete(key);
+  } else if (key && artistBundlesDiskCache.has(key)) {
+    const cached = artistBundlesDiskCache.get(key);
+    if (cached && Date.now() - (cached.updatedAt || 0) < TTL_MS && cached.monthlyListeners && cached.avatarUrl) {
+      const songsMap = new Map();
+      const rawList = [];
+      for (const [norm, streams] of Object.entries(cached.songs || {})) {
+        songsMap.set(norm, { title: norm, streams: Number(streams) });
+        rawList.push({ title: norm, norm, streams: Number(streams) });
+      }
+      return {
+        spotifyId: cached.spotifyId,
+        monthlyListeners: cached.monthlyListeners,
+        avatarUrl: cached.avatarUrl,
+        deezerAvatar: cached.avatarUrl,
+        songsEntry: { songs: songsMap, rawList },
+      };
+    }
+  }
+
+  const idx = await loadListenersIndex({ forceRefresh });
   const idxEntry = idx.get(key) || null;
   const spotifyId = idxEntry?.spotifyId || (await findSpotifyArtistId(artistName));
 
-  const [pageInfo, deezerAvatar, songsEntry] = await Promise.all([
+  const [songsEntry, pageInfo, deezerAvatar] = await Promise.all([
+    spotifyId ? fetchArtistSongsStreams(spotifyId, artistName) : Promise.resolve(null),
     spotifyId ? fetchSpotifyArtistPage(spotifyId) : Promise.resolve({ monthlyListeners: '', avatarUrl: '' }),
     fetchDeezerArtistAvatar(artistName),
-    spotifyId ? fetchArtistSongsStreams(spotifyId) : Promise.resolve(null),
   ]);
 
-  const monthlyListeners = pageInfo.monthlyListeners || idxEntry?.listenersText || '';
-  const avatarUrl = pageInfo.avatarUrl || deezerAvatar || '';
+  const monthlyListeners =
+    songsEntry?.monthlyListeners || pageInfo.monthlyListeners || idxEntry?.listenersText || '';
+  const avatarUrl = songsEntry?.avatarUrl || pageInfo.avatarUrl || deezerAvatar || '';
+
+  if (key && (monthlyListeners || avatarUrl || songsEntry?.songs?.size)) {
+    const songsObj = {};
+    if (songsEntry?.songs) {
+      for (const [k, v] of songsEntry.songs.entries()) {
+        songsObj[k] = v.streams;
+      }
+    }
+    artistBundlesDiskCache.set(key, {
+      spotifyId,
+      monthlyListeners,
+      avatarUrl,
+      songs: songsObj,
+      updatedAt: Date.now(),
+    });
+    scheduleSaveArtistBundlesCache();
+  }
 
   return {
     spotifyId,
@@ -402,14 +711,10 @@ async function getArtistSpotifyBundle(artistName, { forceRefresh = false } = {})
 async function resolveAvatarForArtist(artistName, fallbackUrl = '') {
   const key = normalizeName(artistName);
   if (key) {
-    const idx = await loadListenersIndex();
-    const hit = idx.get(key);
-    if (hit?.spotifyId) {
-      const page = await fetchSpotifyArtistPage(hit.spotifyId);
-      if (page.avatarUrl) return page.avatarUrl;
-    }
-    const dz = await fetchDeezerArtistAvatar(artistName);
-    if (dz) return dz;
+    const disk = artistBundlesDiskCache.get(key);
+    if (disk?.avatarUrl) return disk.avatarUrl;
+    const bundle = await getArtistSpotifyBundle(artistName).catch(() => null);
+    if (bundle?.avatarUrl) return bundle.avatarUrl;
   }
   return fallbackUrl || '';
 }
@@ -432,76 +737,107 @@ function extractCandidateArtists(track, fallbackArtistName = '') {
   return candidates;
 }
 
-async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = '') {
+function lookupCachedSpotifyStreams(track, fallbackArtistName = '', forceRefresh = false) {
+  if (forceRefresh || !track) return 0;
+  if (track.videoId) {
+    const byVid = trackStreamsCache.get(`vid:${track.videoId}`);
+    if (byVid && Date.now() - (byVid.updatedAt || 0) < TTL_MS && byVid.streams > 0) {
+      return byVid.streams;
+    }
+  }
+  const normTitle = normalizeTrackTitle(track.title);
+  if (!normTitle) return 0;
+
+  for (const artistName of extractCandidateArtists(track, fallbackArtistName)) {
+    const normArt = normalizeName(artistName);
+    const key = `${normArt}::${normTitle}`;
+    const byKey = trackStreamsCache.get(key);
+    if (byKey && Date.now() - (byKey.updatedAt || 0) < TTL_MS && byKey.streams > 0) {
+      return byKey.streams;
+    }
+    const bundle = artistBundlesDiskCache.get(normArt);
+    if (bundle?.songs?.[normTitle] > 0) {
+      return Number(bundle.songs[normTitle]);
+    }
+  }
+  return 0;
+}
+
+function recordCachedSpotifyStreams(track, fallbackArtistName, streams) {
+  const num = Number(streams || 0);
+  if (!track || num <= 0) return;
+  const now = Date.now();
+  if (track.videoId) {
+    trackStreamsCache.set(`vid:${track.videoId}`, { streams: num, updatedAt: now });
+  }
+  const normTitle = normalizeTrackTitle(track.title);
+  if (normTitle) {
+    for (const artistName of extractCandidateArtists(track, fallbackArtistName)) {
+      const normArt = normalizeName(artistName);
+      if (normArt) {
+        trackStreamsCache.set(`${normArt}::${normTitle}`, { streams: num, updatedAt: now });
+      }
+    }
+  }
+  scheduleSaveTrackStreamsCache();
+}
+
+async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = '', { forceRefresh = false } = {}) {
   if (!Array.isArray(tracks) || tracks.length === 0) return tracks;
 
-  const artistNames = [];
-  for (const t of tracks) {
-    for (const name of extractCandidateArtists(t, fallbackArtistName)) {
-      if (!artistNames.includes(name)) artistNames.push(name);
-      if (artistNames.length >= 60) break;
+  // 1. Resolve from persistent 30-day Spotify cache first
+  const results = tracks.map((t) => {
+    if (!t) return t;
+    if (!forceRefresh && t.spotifyStreams > 0) {
+      recordCachedSpotifyStreams(t, fallbackArtistName, t.spotifyStreams);
+      return t;
     }
-    if (artistNames.length >= 60) break;
+    const cachedStreams = lookupCachedSpotifyStreams(t, fallbackArtistName, forceRefresh);
+    if (cachedStreams > 0) {
+      return { ...t, spotifyStreams: cachedStreams };
+    }
+    return t;
+  });
+
+  // 2. For any tracks still missing spotifyStreams, query Spotify Pathfinder API (searchDesktop + getTrack) in parallel
+  const missingIndices = [];
+  for (let i = 0; i < results.length; i++) {
+    if (results[i]?.title && (!results[i].spotifyStreams || forceRefresh)) {
+      missingIndices.push(i);
+    }
   }
 
-  const artistMap = new Map();
+  if (missingIndices.length === 0) return results;
+
+  // Warm Spotify embed token once before parallel fan-out
+  await getSpotifyAccessToken();
+
   let cursor = 0;
-  const concurrency = Math.min(6, Math.max(1, artistNames.length));
+  const concurrency = Math.min(8, missingIndices.length);
   await Promise.all(
     Array.from({ length: concurrency }, async () => {
-      while (cursor < artistNames.length) {
-        const name = artistNames[cursor++];
+      while (cursor < missingIndices.length) {
+        const idx = missingIndices[cursor++];
+        const item = results[idx];
+        const candidates = extractCandidateArtists(item, fallbackArtistName);
+        const primaryArtist = candidates[0] || fallbackArtistName || item.artist || '';
         try {
-          const idx = await loadListenersIndex();
-          const spotifyId = idx.get(normalizeName(name))?.spotifyId || (await findSpotifyArtistId(name));
-          if (spotifyId) {
-            const entry = await fetchArtistSongsStreams(spotifyId);
-            if (entry) artistMap.set(normalizeName(name), entry);
+          const playcount = await fetchSpotifyTrackPlaycount(item.title, primaryArtist);
+          if (playcount > 0) {
+            results[idx] = { ...item, spotifyStreams: playcount };
+            recordCachedSpotifyStreams(results[idx], fallbackArtistName, playcount);
           }
         } catch {}
       }
     })
   );
 
-  const afterKworb = tracks.map((t) => {
-    if (t?.spotifyStreams) return t;
-    for (const name of extractCandidateArtists(t, fallbackArtistName)) {
-      const entry = artistMap.get(normalizeName(name));
-      const streams = matchStreamCount(t.title, entry);
-      if (streams) return { ...t, spotifyStreams: streams };
-    }
-    return t;
-  });
-
-  // Fallback for any track still missing spotifyStreams: query YTM player viewCount
-  const needYtm = afterKworb.filter((t) => t && t.videoId && !t.spotifyStreams);
-  if (needYtm.length > 0) {
-    let ytmCursor = 0;
-    let cacheDirty = false;
-    const ytmConcurrency = Math.min(8, needYtm.length);
-    await Promise.all(
-      Array.from({ length: ytmConcurrency }, async () => {
-        while (ytmCursor < needYtm.length) {
-          const item = needYtm[ytmCursor++];
-          const hadCached = ytmStreamsCache.has(item.videoId);
-          const count = await fetchYtmTrackStreamCount(item.videoId);
-          if (count > 0 && !hadCached) cacheDirty = true;
-        }
-      })
-    );
-    if (cacheDirty) saveYtmStreamsCache();
-  }
-
-  return afterKworb.map((t) => {
-    if (t?.spotifyStreams) return t;
-    const ytmCount = t?.videoId ? ytmStreamsCache.get(t.videoId) : 0;
-    if (ytmCount > 0) return { ...t, spotifyStreams: ytmCount };
-    return t;
-  });
+  return results;
 }
 
-// Kick off index load immediately on require
+// Kick off index + token load immediately on require
 loadListenersIndex().catch(() => {});
+getSpotifyAccessToken().catch(() => {});
 
 function clearStatCaches() {
   listenersIndex = null;

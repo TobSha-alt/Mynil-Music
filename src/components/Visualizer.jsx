@@ -57,12 +57,16 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
 
     const peaks = new Float32Array(barCount);
     const smoothBars = new Float32Array(barCount);
+    const bandFloor = new Float32Array(barCount);
     for (let i = 0; i < barCount; i++) {
       const c = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.4;
-      smoothBars[i] = (0.18 + 0.14 * Math.sin(i * 0.55)) * c;
+      smoothBars[i] = (0.08 + 0.06 * Math.sin(i * 0.55)) * c;
       peaks[i] = smoothBars[i];
+      bandFloor[i] = 0.15;
     }
     let bins = null;
+    let timeBins = null;
+    let avgRms = 0.08;
 
     const syncSize = () => {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -106,13 +110,28 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
 
       const analyser = analyserRef.current;
       let hasSignal = false;
+      let rms = 0;
+      let onset = 0;
       if (analyser && playing) {
         if (!bins || bins.length !== analyser.frequencyBinCount) {
           bins = new Uint8Array(analyser.frequencyBinCount);
         }
+        if (!timeBins || timeBins.length !== analyser.fftSize) {
+          timeBins = new Uint8Array(analyser.fftSize);
+        }
         analyser.getByteFrequencyData(bins);
+        analyser.getByteTimeDomainData(timeBins);
+        let sumSq = 0;
+        for (let k = 0; k < timeBins.length; k++) {
+          const v = (timeBins[k] - 128) / 128;
+          sumSq += v * v;
+        }
+        rms = Math.sqrt(sumSq / timeBins.length);
+        avgRms += (rms - avgRms) * Math.min(1, dt * 6);
+        onset = Math.max(0, rms - avgRms);
+
         for (let k = 0; k < bins.length; k++) {
-          if (bins[k] > 2) {
+          if (bins[k] > 2 || rms > 0.004) {
             hasSignal = true;
             break;
           }
@@ -142,27 +161,52 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
         cachedGradKey = gradKey;
       }
 
-      // Freeze wave shape & panning spotlight in exact paused position when paused; resume smoothly on play
-      const smoothFactor = 1 - Math.exp(-dt * (26 + agg * 14));
+      // Fast attack & musical decay so bars match real audio transients and drop during quiet gaps
+      const attackFactor = 1 - Math.exp(-dt * (46 + agg * 18));
+      const releaseFactor = 1 - Math.exp(-dt * (14 + agg * 6));
+      const minBin = 1;
+      const maxBin = bins ? Math.min(bins.length - 1, Math.max(32, Math.floor(bins.length * 0.48))) : 48;
+
       const sampleBin = (i) => {
-        const t = i / Math.max(1, barCount - 1);
-        const binIdx = Math.min(bins.length - 1, Math.floor(Math.pow(t, 1.35) * (bins.length * 0.68)));
-        const raw = bins[binIdx] / 255;
-        let localSum = 0;
-        let localCount = 0;
-        for (let k = Math.max(0, binIdx - 4); k <= Math.min(bins.length - 1, binIdx + 4); k++) {
-          localSum += bins[k] / 255;
-          localCount++;
+        const t0 = i / Math.max(1, barCount);
+        const t1 = (i + 1) / Math.max(1, barCount);
+        const bStart = Math.max(minBin, Math.floor(minBin * Math.pow(maxBin / minBin, t0)));
+        const bEnd = Math.min(bins.length - 1, Math.max(bStart, Math.ceil(minBin * Math.pow(maxBin / minBin, t1))));
+        let sum = 0;
+        let peakBin = 0;
+        let cnt = 0;
+        for (let b = bStart; b <= bEnd; b++) {
+          const val = bins[b] / 255;
+          sum += val;
+          if (val > peakBin) peakBin = val;
+          cnt++;
         }
-        const localAvg = localCount > 0 ? localSum / localCount : raw;
-        const localSpike = Math.max(0, raw - localAvg);
-        return { raw, localSpike };
+        const bandVal = cnt > 0 ? sum / cnt * 0.55 + peakBin * 0.45 : 0;
+
+        // Track slow noise floor per band so dynamic changes (vocals, drums, guitar) stand out sharply
+        const floorRate = bandVal < bandFloor[i] ? dt * 4.5 : dt * 0.85;
+        bandFloor[i] += (bandVal - bandFloor[i]) * Math.min(1, floorRate);
+        const dynamicDelta = Math.max(0, bandVal - bandFloor[i] * 0.62);
+
+        // Combine frequency band energy, dynamic contrast, and real-time time-domain waveform/RMS envelope
+        const envGate = Math.min(1.25, Math.max(0.08, rms * 3.4 + onset * 5.2));
+        let waveSample = 0;
+        if (timeBins && timeBins.length > 0) {
+          const ti = Math.min(timeBins.length - 1, Math.floor((i / Math.max(1, barCount - 1)) * (timeBins.length - 1)));
+          waveSample = Math.abs((timeBins[ti] - 128) / 128);
+        }
+        return {
+          raw: bandVal,
+          dynamicDelta,
+          envGate,
+          waveSample,
+        };
       };
       const shapeGain = (val) => {
         if (typeof val === 'object' && val !== null) {
-          const base = Math.pow(Math.max(0, val.raw), 1.35);
-          const spiked = base + val.localSpike * (1.2 * agg);
-          return Math.min(1, spiked * (0.45 + agg * 0.55));
+          if ( val.raw < 0.02 && rms < 0.005 ) return 0.02;
+          const shaped = Math.pow(Math.max(0, val.raw), 1.55) * 0.55 + val.dynamicDelta * (1.35 * agg) + val.waveSample * (0.35 * agg);
+          return Math.min(1, Math.max(0.02, shaped * val.envGate * (0.55 + agg * 0.45)));
         }
         return Math.min(1, Math.pow(Math.max(0, val), 1.2) * (0.45 + agg * 0.55));
       };
@@ -201,7 +245,8 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
             } else {
               target = shapeGain(target);
             }
-            smoothBars[i] += (target - smoothBars[i]) * smoothFactor;
+            const sf = target > smoothBars[i] ? attackFactor : releaseFactor;
+            smoothBars[i] += (target - smoothBars[i]) * sf;
           }
         }
 
@@ -258,7 +303,8 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
             target = Math.min(1, target * spotlight);
           }
 
-          smoothBars[i] += (target - smoothBars[i]) * smoothFactor;
+          const sf = target > smoothBars[i] ? attackFactor : releaseFactor;
+          smoothBars[i] += (target - smoothBars[i]) * sf;
           const ratio = smoothBars[i];
           if (ratio > peaks[i]) peaks[i] = ratio;
           else peaks[i] = Math.max(ratio, peaks[i] - peakDecay);
