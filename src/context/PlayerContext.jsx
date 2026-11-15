@@ -1349,6 +1349,12 @@ export function PlayerProvider({ children }) {
     return res;
   }, []);
 
+  const importMusicTaste = useCallback(async (payload) => {
+    const res = await window.sona.importMusicTaste(payload);
+    if (res?.state) setLibrary(res.state);
+    return res;
+  }, []);
+
   const updatePlaylist = useCallback(async (id, patch) => {
     const next = await window.sona.updatePlaylist(id, patch);
     setLibrary(next);
@@ -1465,6 +1471,7 @@ export function PlayerProvider({ children }) {
       toggleSaveAlbum,
       createPlaylist,
       importPlaylist,
+      importMusicTaste,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,
@@ -1531,6 +1538,7 @@ export function PlayerProvider({ children }) {
       toggleSaveAlbum,
       createPlaylist,
       importPlaylist,
+      importMusicTaste,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,

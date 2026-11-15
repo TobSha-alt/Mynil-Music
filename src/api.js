@@ -66,6 +66,7 @@ if (!window.sona) {
     toggleSaveAlbum: (album) => jsonPost('/api/library/album', album),
     createPlaylist: (payload) => jsonPost('/api/library/playlist/create', payload),
     importPlaylist: (payload) => jsonPost('/api/library/playlist/import', payload),
+    importMusicTaste: (payload) => jsonPost('/api/library/taste/import', payload),
     updatePlaylist: (id, patch) => jsonPost('/api/library/playlist/update', { id, patch }),
     deletePlaylist: (id) => jsonPost('/api/library/playlist/delete', { id }),
     addToPlaylist: (playlistId, track) => jsonPost('/api/library/playlist/add', { playlistId, track }),

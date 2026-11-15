@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, Plus, ListMusic, Users, Disc3, Play, Download, X, Loader2 } from 'lucide-react';
+import { Heart, Plus, ListMusic, Users, Disc3, Play, Download, X, Loader2, Sparkles } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { ArtistCard, AlbumCard } from '../components/MediaCards';
 import TrackRow from '../components/TrackRow';
@@ -13,13 +13,45 @@ export default function LibraryView({
   onOpenAlbum,
   onOpenNewPlaylist,
 }) {
-  const { library, playTrack, importPlaylist, showToast } = usePlayer();
+  const { library, playTrack, importPlaylist, importMusicTaste, showToast } = usePlayer();
   const [tab, setTab] = useState(initialTab);
   const [importOpen, setImportOpen] = useState(false);
   const [importInput, setImportInput] = useState('');
   const [importName, setImportName] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
+
+  const [tasteOpen, setTasteOpen] = useState(false);
+  const [tasteInput, setTasteInput] = useState('');
+  const [tasteImporting, setTasteImporting] = useState(false);
+  const [tasteError, setTasteError] = useState('');
+  const [tasteOpts, setTasteOpts] = useState({
+    importPlaylists: true,
+    likeSongs: true,
+    followArtists: true,
+    tuneRecommendations: true,
+  });
+
+  const handleTasteSubmit = async (e) => {
+    e.preventDefault();
+    if (!tasteInput.trim()) return;
+    setTasteImporting(true);
+    setTasteError('');
+    try {
+      const res = await importMusicTaste({ input: tasteInput.trim(), options: tasteOpts });
+      const parts = [];
+      if (res?.playlistsCreated) parts.push(`${res.playlistsCreated} playlists`);
+      if (res?.likedAdded) parts.push(`${res.likedAdded} liked songs`);
+      if (res?.artistsFollowed) parts.push(`${res.artistsFollowed} artists`);
+      showToast?.(`Imported taste${parts.length ? `: ${parts.join(', ')}` : ''}`);
+      setTasteOpen(false);
+      setTasteInput('');
+    } catch (err) {
+      setTasteError(err?.message || 'Failed to import music taste');
+    } finally {
+      setTasteImporting(false);
+    }
+  };
 
   const handleImportSubmit = async (e) => {
     e.preventDefault();
@@ -60,6 +92,15 @@ export default function LibraryView({
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
+              setTasteError('');
+              setTasteOpen(true);
+            }}
+            className="px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <Sparkles size={14} /> Import Taste
+          </button>
+          <button
+            onClick={() => {
               setImportError('');
               setImportOpen(true);
             }}
@@ -75,6 +116,92 @@ export default function LibraryView({
           </button>
         </div>
       </div>
+
+      {tasteOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleTasteSubmit}
+            className="w-full max-w-lg rounded-2xl bg-zinc-900 border border-white/15 p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} className="text-emerald-400" />
+                <h2 className="text-lg font-extrabold text-white">Import Music Taste</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => !tasteImporting && setTasteOpen(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Paste a <span className="text-white font-semibold">YouTube / YouTube Music profile link</span>, one or more{' '}
+              <span className="text-white font-semibold">Spotify / Amazon Music / YTM public playlist links</span> (one per line),
+              or a list of favorite songs &amp; artists.
+            </p>
+            <textarea
+              rows={4}
+              value={tasteInput}
+              onChange={(e) => setTasteInput(e.target.value)}
+              placeholder={"https://www.youtube.com/@channelname\n— or paste 1 or more public playlist links (one per line)"}
+              className="w-full rounded-xl bg-black/40 border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-white/30"
+            />
+            <div className="grid grid-cols-2 gap-2 text-xs text-zinc-300">
+              {[
+                { key: 'importPlaylists', label: 'Import public playlists' },
+                { key: 'likeSongs', label: 'Add top tracks to Liked' },
+                { key: 'followArtists', label: 'Follow top artists' },
+                { key: 'tuneRecommendations', label: 'Tune Home feed' },
+              ].map((item) => (
+                <label
+                  key={item.key}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] cursor-pointer hover:bg-white/[0.07]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={tasteOpts[item.key]}
+                    onChange={(e) => setTasteOpts((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                    className="accent-emerald-400"
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+            {tasteError && (
+              <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">
+                {tasteError}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={tasteImporting}
+                onClick={() => setTasteOpen(false)}
+                className="px-4 py-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-xs font-bold text-zinc-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={tasteImporting || !tasteInput.trim()}
+                className="px-5 py-2 rounded-full bg-emerald-400 text-black text-xs font-bold flex items-center gap-1.5 btn-glow disabled:opacity-50"
+              >
+                {tasteImporting ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Importing…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} /> Import Taste
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {importOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">

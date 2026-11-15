@@ -520,6 +520,76 @@ async function handleApi(req, res, urlObj) {
       });
     }
 
+    if (pathname === '/api/library/taste/import' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const opts = body.options || {};
+      const importPlaylistsOpt = opts.importPlaylists !== false;
+      const likeSongsOpt = opts.likeSongs !== false;
+      const followArtistsOpt = opts.followArtists !== false;
+      const tuneRecsOpt = opts.tuneRecommendations !== false;
+
+      const taste = await importer.importMusicTaste({ input: body.input || '' });
+      let playlistsCreated = 0;
+      let likedAdded = 0;
+      let artistsFollowed = 0;
+      let historySeeded = 0;
+
+      if (importPlaylistsOpt) {
+        for (const pl of taste.playlists) {
+          if (pl.tracks?.length > 0) {
+            store.createPlaylist({
+              name: pl.title,
+              description: pl.description || '',
+              initialTracks: pl.tracks,
+            });
+            playlistsCreated++;
+          }
+        }
+      }
+
+      if (likeSongsOpt) {
+        const existingLiked = new Set((store.getAll().likedSongs || []).map((t) => t.videoId));
+        for (const t of [...taste.topTracks].reverse()) {
+          if (t?.videoId && !existingLiked.has(t.videoId)) {
+            store.toggleLike(t);
+            existingLiked.add(t.videoId);
+            likedAdded++;
+          }
+        }
+      }
+
+      if (followArtistsOpt) {
+        const existingArtists = new Set((store.getAll().followedArtists || []).map((a) => a.id));
+        for (const a of taste.topArtists) {
+          if (a?.id && !existingArtists.has(a.id)) {
+            store.toggleFollowArtist(a);
+            existingArtists.add(a.id);
+            artistsFollowed++;
+          }
+        }
+      }
+
+      if (tuneRecsOpt) {
+        for (const t of taste.topTracks.slice(0, 15).reverse()) {
+          if (t?.videoId) {
+            store.recordPlay(t);
+            historySeeded++;
+          }
+        }
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        profileName: taste.profileName,
+        source: taste.source,
+        playlistsCreated,
+        likedAdded,
+        artistsFollowed,
+        historySeeded,
+        state: store.getAll(),
+      });
+    }
+
     if (pathname === '/api/library/playlist/update' && req.method === 'POST') {
       const body = await readJsonBody(req);
       return sendJson(res, 200, store.updatePlaylist(body.id, body.patch || {}));

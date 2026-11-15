@@ -280,7 +280,172 @@ async function importPlaylist({ urlOrText, name }) {
   );
 }
 
+async function fetchYtmProfilePlaylists(profileUrl) {
+  let targetUrl = profileUrl.trim();
+  if (!targetUrl.startsWith('http')) targetUrl = `https://${targetUrl}`;
+  const u = new URL(targetUrl);
+  // music.youtube.com/channel/UC... -> www.youtube.com/channel/UC.../playlists
+  const pathParts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+  let basePath = '';
+  if (pathParts[0] === 'channel' && pathParts[1]) {
+    basePath = `/channel/${pathParts[1]}`;
+  } else if (pathParts[0]?.startsWith('@')) {
+    basePath = `/${pathParts[0]}`;
+  } else if ((pathParts[0] === 'c' || pathParts[0] === 'user') && pathParts[1]) {
+    basePath = `/${pathParts[0]}/${pathParts[1]}`;
+  } else {
+    throw new Error('Could not recognize YouTube / YouTube Music profile URL.');
+  }
+
+  const res = await fetch(`https://www.youtube.com${basePath}/playlists`, {
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`YouTube returned HTTP ${res.status} for that profile.`);
+  }
+  const html = await res.text();
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1];
+  const profileName = decodeHtmlEntities(ogTitle || pathParts[1] || pathParts[0] || 'Imported Profile');
+
+  const ids = [];
+  const seen = new Set();
+  for (const m of html.matchAll(/"playlistId":"([A-Za-z0-9_-]{10,})"/g)) {
+    const pid = m[1];
+    if (!seen.has(pid)) {
+      seen.add(pid);
+      ids.push(pid);
+      if (ids.length >= 6) break;
+    }
+  }
+  if (ids.length === 0) {
+    throw new Error('No public playlists found on this YouTube / YouTube Music profile.');
+  }
+
+  const playlists = [];
+  for (const pid of ids) {
+    try {
+      const pl = await ytm.getPlaylist(pid);
+      if (pl?.tracks?.length > 0) {
+        playlists.push({
+          title: pl.title || `${profileName} Playlist`,
+          description: `Imported from ${profileName}'s profile`,
+          tracks: pl.tracks.slice(0, 35),
+        });
+      }
+    } catch {}
+  }
+
+  if (playlists.length === 0) {
+    throw new Error('Found playlists on this profile, but none had playable public tracks.');
+  }
+  return { source: 'ytm-profile', profileName, playlists };
+}
+
+async function importMusicTaste({ input }) {
+  const raw = (input || '').trim();
+  if (!raw) throw new Error('Paste a profile link, playlist links, or favorite songs.');
+
+  if (/open\.spotify\.com\/(?:intl-[^/]+\/)?user\//i.test(raw) && !/\/playlist\//i.test(raw)) {
+    throw new Error(
+      'Spotify keeps user profiles & liked songs private without login. Paste 1 or more of their public Spotify playlist links (one per line) to import their taste!'
+    );
+  }
+  if (/music\.amazon\.[^/]+\/profiles\//i.test(raw) && !/\/playlists\//i.test(raw)) {
+    throw new Error(
+      'Amazon Music keeps personal profiles private. Paste 1 or more of their public playlist links (one per line) to import their taste!'
+    );
+  }
+
+  let profileName = 'Imported Taste';
+  let source = 'playlists';
+  let playlists = [];
+
+  const isSingleYtmProfile =
+    !raw.includes('\n') &&
+    /(?:youtube\.com|music\.youtube\.com)\/(?:@[^/?#]+|channel\/[^/?#]+|c\/[^/?#]+|user\/[^/?#]+)/i.test(raw) &&
+    !/[?&]list=/i.test(raw);
+
+  if (isSingleYtmProfile) {
+    const res = await fetchYtmProfilePlaylists(raw);
+    profileName = res.profileName;
+    source = res.source;
+    playlists = res.playlists;
+  } else {
+    const lines = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const urlLines = lines.filter((l) => detectSource(l).type !== 'unknown' && detectSource(l).type !== 'text');
+
+    if (urlLines.length > 0) {
+      for (const u of urlLines.slice(0, 6)) {
+        try {
+          const pl = await importPlaylist({ urlOrText: u });
+          if (pl?.tracks?.length > 0) {
+            playlists.push({
+              title: pl.title,
+              description: pl.description || 'Imported Music Taste',
+              tracks: pl.tracks.slice(0, 40),
+            });
+          }
+        } catch {}
+      }
+      if (playlists.length === 0) {
+        throw new Error('Could not load any public tracks from those playlist links.');
+      }
+    } else {
+      const txt = await importFromText(raw, 'Imported Taste Mix');
+      playlists = [{ title: txt.title, description: txt.description, tracks: txt.tracks }];
+      source = 'text';
+    }
+  }
+
+  // Deduplicate tracks and rank most frequent artists
+  const seenTracks = new Set();
+  const allTracks = [];
+  const artistFreq = new Map();
+
+  for (const pl of playlists) {
+    for (const t of pl.tracks || []) {
+      if (!t?.videoId) continue;
+      if (!seenTracks.has(t.videoId)) {
+        seenTracks.add(t.videoId);
+        allTracks.push(t);
+      }
+      if (t.artistId && t.artist) {
+        const prev = artistFreq.get(t.artistId) || {
+          id: t.artistId,
+          name: t.artist,
+          thumbnail: t.thumbnail || '',
+          count: 0,
+        };
+        prev.count += 1;
+        artistFreq.set(t.artistId, prev);
+      }
+    }
+  }
+
+  const enriched = await spotify.enrichTracksWithSpotifyStreams(allTracks.slice(0, 50)).catch(() => allTracks);
+  const topArtists = [...artistFreq.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8)
+    .map(({ id, name, thumbnail }) => ({ id, name, thumbnail }));
+
+  return {
+    profileName,
+    source,
+    playlists,
+    topTracks: enriched.slice(0, 25),
+    topArtists,
+    totalTracks: allTracks.length,
+  };
+}
+
 module.exports = {
   importPlaylist,
+  importMusicTaste,
   detectSource,
 };
