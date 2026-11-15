@@ -80,7 +80,8 @@ jobs:
         id: ver
         run: |
           V="${GITHUB_REF_NAME#v}"
-          if [ -n "${{ inputs.version }}" ]; then V="${{ inputs.version#v }}"; fi
+          IN_VER="${{ inputs.version }}"
+          if [ -n "$IN_VER" ]; then V="${IN_VER#v}"; fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
       - name: Install & Build Frontend
