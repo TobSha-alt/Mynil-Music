@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   ChevronDown,
   Play,
   Pause,
@@ -241,14 +242,17 @@ export default function TheaterModal({ onOpenArtist }) {
       <PlayingBackdrop mode={backdropMode} />
 
       {/* Top Bar */}
-      <div className="relative z-30 h-16 pl-24 pr-6 grid grid-cols-3 items-center drag-region">
+      <div className="relative z-30 h-16 pl-6 pr-6 grid grid-cols-3 items-center drag-region">
         <div className="justify-self-start flex items-center gap-2">
-          <button
-            onClick={() => setTheaterOpen(false)}
-            className="no-drag flex items-center gap-2 px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/[0.1] text-xs font-semibold text-white transition active:scale-95"
-          >
-            <ChevronDown size={16} /> Back to Browse
-          </button>
+          {!hideTopControls && (
+            <button
+              onClick={() => setTheaterOpen(false)}
+              className="no-drag p-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/[0.1] text-white transition active:scale-95"
+              title="Back to Browse"
+            >
+              <ArrowLeft size={15} />
+            </button>
+          )}
           <button
             onClick={() => {
               setHideTopControls((prev) => {
@@ -256,7 +260,7 @@ export default function TheaterModal({ onOpenArtist }) {
                 return !prev;
               });
             }}
-            className={`no-drag p-2 rounded-full border text-xs font-semibold transition active:scale-95 ${
+            className={`no-drag p-2 rounded-full border transition active:scale-95 ${
               hideTopControls
                 ? 'bg-white/20 border-white/25 text-white'
                 : 'bg-white/10 hover:bg-white/20 border-white/[0.1] text-zinc-300 hover:text-white'
