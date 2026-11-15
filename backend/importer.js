@@ -388,7 +388,7 @@ async function importMusicTaste({ input }) {
             playlists.push({
               title: pl.title,
               description: pl.description || 'Imported Music Taste',
-              tracks: pl.tracks.slice(0, 40),
+              tracks: pl.tracks.slice(0, 100),
             });
           }
         } catch {}
@@ -428,7 +428,7 @@ async function importMusicTaste({ input }) {
     }
   }
 
-  const enriched = await spotify.enrichTracksWithSpotifyStreams(allTracks.slice(0, 50)).catch(() => allTracks);
+  const enriched = await spotify.enrichTracksWithSpotifyStreams(allTracks.slice(0, 200)).catch(() => allTracks);
   const topArtists = [...artistFreq.values()]
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
@@ -438,7 +438,7 @@ async function importMusicTaste({ input }) {
     profileName,
     source,
     playlists,
-    topTracks: enriched.slice(0, 25),
+    topTracks: enriched.slice(0, 200),
     topArtists,
     totalTracks: allTracks.length,
   };
