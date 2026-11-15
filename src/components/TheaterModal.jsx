@@ -114,6 +114,7 @@ export default function TheaterModal({ onOpenArtist }) {
   const visualizerSize = theaterPrefs.visualizerSize || 'medium';
   const visualizerDensity = theaterPrefs.visualizerDensity || 'medium';
   const visualizerPeakDelay = Number(theaterPrefs.visualizerPeakDelay ?? 1.2);
+  const visualizerAggression = Number(theaterPrefs.visualizerAggression ?? 1.0);
   const visHeight = visualizerSize === 'compact' ? 42 : visualizerSize === 'tall' ? 92 : 64;
   const visBars = visualizerDensity === 'low' ? 28 : visualizerDensity === 'high' ? 72 : 48;
 
@@ -406,11 +407,12 @@ export default function TheaterModal({ onOpenArtist }) {
                 {/* Album Shape */}
                 <div>
                   <p className="text-[11px] font-semibold text-zinc-300 mb-1.5">Album Shape</p>
-                  <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                  <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
                     {[
                       { id: 'rounded', label: 'Rounded' },
                       { id: 'square', label: 'Square' },
                       { id: 'circle', label: 'Circle' },
+                      { id: 'vinyl', label: 'Vinyl' },
                     ].map((opt) => (
                       <button
                         key={opt.id}
@@ -520,6 +522,21 @@ export default function TheaterModal({ onOpenArtist }) {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[11px] font-semibold text-zinc-300">Waveform Aggression</p>
+                      <span className="text-[10px] font-mono text-zinc-400">{visualizerAggression.toFixed(1)}×</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.5"
+                      step="0.1"
+                      value={visualizerAggression}
+                      onChange={(e) => updatePref({ visualizerAggression: Number(e.target.value) })}
+                      className="w-full accent-emerald-400 cursor-pointer"
+                    />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -634,18 +651,39 @@ export default function TheaterModal({ onOpenArtist }) {
                     ? 'w-80 h-80 sm:w-[440px] sm:h-[440px]'
                     : 'w-72 h-72 sm:w-96 sm:h-96'
                 } ${
-                  albumShape === 'circle'
+                  albumShape === 'circle' || albumShape === 'vinyl'
                     ? 'rounded-full'
                     : albumShape === 'rounded'
                     ? 'rounded-3xl'
                     : 'rounded-none'
                 }`}
               >
-                <CoverArt
-                  item={currentTrack}
-                  loading="eager"
-                  className="w-full h-full object-cover"
-                />
+                {albumShape === 'vinyl' ? (
+                  <div
+                    className="relative w-full h-full rounded-full flex items-center justify-center animate-[spin_9s_linear_infinite]"
+                    style={{
+                      animationPlayState: isPlaying ? 'running' : 'paused',
+                      backgroundColor: '#0a0a0d',
+                      backgroundImage:
+                        'conic-gradient(from 35deg, transparent 0deg, rgba(255,255,255,0.09) 28deg, transparent 58deg, transparent 180deg, rgba(255,255,255,0.06) 208deg, transparent 238deg), repeating-radial-gradient(circle, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 4px)',
+                    }}
+                  >
+                    <div className="w-[44%] h-[44%] rounded-full overflow-hidden ring-2 ring-black/80 shadow-2xl relative">
+                      <CoverArt
+                        item={currentTrack}
+                        loading="eager"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="absolute w-3.5 h-3.5 rounded-full bg-zinc-950 ring-1 ring-white/25 shadow-inner pointer-events-none" />
+                  </div>
+                ) : (
+                  <CoverArt
+                    item={currentTrack}
+                    loading="eager"
+                    className="w-full h-full object-cover"
+                  />
+                )}
               </div>
             )}
 

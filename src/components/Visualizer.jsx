@@ -13,6 +13,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
   const visualizerStyle = prefs.visualizerStyle || 'bars';
   const visualizerColor = prefs.visualizerColor || 'accent';
   const visualizerPeakDelay = Number(prefs.visualizerPeakDelay ?? 1.2);
+  const visualizerAggression = Number(prefs.visualizerAggression ?? 1.0);
   const panRef = usePanMotion(panningWaveform, panFrequency, panAmplitude, isPlaying, panRotation, 2.35);
 
   const liveRef = useRef({
@@ -24,6 +25,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
     visualizerStyle,
     visualizerColor,
     visualizerPeakDelay,
+    visualizerAggression,
   });
   liveRef.current = {
     isPlaying,
@@ -34,6 +36,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
     visualizerStyle,
     visualizerColor,
     visualizerPeakDelay,
+    visualizerAggression,
   };
 
   useEffect(() => {
@@ -91,7 +94,9 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
         visualizerStyle: styleMode,
         visualizerColor: colorMode,
         visualizerPeakDelay: peakDelay,
+        visualizerAggression: aggRaw,
       } = liveRef.current;
+      const agg = Math.max(0.4, Math.min(2.8, Number(aggRaw) || 1.0));
 
       const w = width;
       const h = curHeight;
@@ -138,7 +143,8 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
       }
 
       // Freeze wave shape & panning spotlight in exact paused position when paused; resume smoothly on play
-      const smoothFactor = 1 - Math.exp(-dt * 24);
+      const smoothFactor = 1 - Math.exp(-dt * (24 * Math.max(0.7, Math.min(2.0, agg))));
+      const shapeGain = (val) => Math.min(1, Math.pow(Math.max(0, val), 1 / (0.65 + agg * 0.35)) * agg);
       const peakDecay = dt / Math.max(0.1, Number(peakDelay) || 1.2);
       const gap = 3;
       const barW = Math.max(2, (w - gap * (barCount - 1)) / barCount);
@@ -172,6 +178,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
               const spotlight = Math.max(0.35, 1.28 - dist * (0.9 + ampNorm * 0.6));
               target = Math.min(1, target * spotlight);
             }
+            target = shapeGain(target);
             smoothBars[i] += (target - smoothBars[i]) * smoothFactor;
           }
         }
@@ -222,6 +229,7 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
                 0.16 * Math.cos(phase * 2.1 - i * 0.28)) *
               centerFactor;
           }
+          target = shapeGain(target);
 
           if (panOn) {
             const dist = Math.abs(i / Math.max(1, barCount - 1) - panCenter);
