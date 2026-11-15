@@ -130,7 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         let config = WKWebViewConfiguration()
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsAirPlayForMediaPlayback = true
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences.setValue(false, forKey: "developerExtrasEnabled")
 
         webView = WKWebView(frame: frame, configuration: config)
         webView.autoresizingMask = [.width, .height]
