@@ -21,6 +21,8 @@ import {
   Volume2,
   Volume1,
   VolumeX,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { usePlayer, usePlaybackTime } from '../context/PlayerContext';
 import { formatTime } from '../utils/format';
@@ -68,6 +70,7 @@ export default function TheaterModal({ onOpenArtist }) {
   const [dragRatio, setDragRatio] = useState(null);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hideTopControls, setHideTopControls] = useState(false);
   const viewMenuRef = useRef(null);
   const progressRef = useRef(null);
   const fillRef = useRef(null);
@@ -239,17 +242,34 @@ export default function TheaterModal({ onOpenArtist }) {
 
       {/* Top Bar */}
       <div className="relative z-30 h-16 pl-24 pr-6 grid grid-cols-3 items-center drag-region">
-        <div className="justify-self-start">
+        <div className="justify-self-start flex items-center gap-2">
           <button
             onClick={() => setTheaterOpen(false)}
             className="no-drag flex items-center gap-2 px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/[0.1] text-xs font-semibold text-white transition active:scale-95"
           >
             <ChevronDown size={16} /> Back to Browse
           </button>
+          <button
+            onClick={() => {
+              setHideTopControls((prev) => {
+                if (!prev) setViewMenuOpen(false);
+                return !prev;
+              });
+            }}
+            className={`no-drag p-2 rounded-full border text-xs font-semibold transition active:scale-95 ${
+              hideTopControls
+                ? 'bg-white/20 border-white/25 text-white'
+                : 'bg-white/10 hover:bg-white/20 border-white/[0.1] text-zinc-300 hover:text-white'
+            }`}
+            title={hideTopControls ? 'Show Top Controls' : 'Hide Top Controls'}
+          >
+            {hideTopControls ? <Eye size={15} /> : <EyeOff size={15} />}
+          </button>
         </div>
 
         {/* Song / Music Video Mode Switch */}
-        <div className="justify-self-center no-drag relative grid grid-cols-2 w-56 p-1 rounded-full bg-black/50 backdrop-blur-2xl border border-white/10">
+        {!hideTopControls ? (
+          <div className="justify-self-center no-drag relative grid grid-cols-2 w-56 p-1 rounded-full bg-black/50 backdrop-blur-2xl border border-white/10">
           <div
             className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-white shadow-lg transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               mediaMode === 'video' ? 'translate-x-full' : 'translate-x-0'
@@ -271,10 +291,14 @@ export default function TheaterModal({ onOpenArtist }) {
           >
             <Film size={13} /> Video
           </button>
-        </div>
+          </div>
+        ) : (
+          <div />
+        )}
 
         {/* Cool Background, View Settings & Fullscreen */}
-        <div className="justify-self-end flex items-center gap-2 no-drag">
+        {!hideTopControls ? (
+          <div className="justify-self-end flex items-center gap-2 no-drag">
           <BackdropMenu align="right" />
 
           <div ref={viewMenuRef} className="relative">
@@ -611,7 +635,10 @@ export default function TheaterModal({ onOpenArtist }) {
           >
             {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
-        </div>
+          </div>
+        ) : (
+          <div />
+        )}
       </div>
 
       {/* Main Content */}
