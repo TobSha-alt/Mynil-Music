@@ -115,7 +115,9 @@ async function loadListenersIndex({ forceRefresh = false } = {}) {
       }
     } catch {}
 
-    listenersIndex = map;
+    if (map.size > 0) {
+      listenersIndex = map;
+    }
     return map;
   })().finally(() => {
     listenersPromise = null;
@@ -249,7 +251,9 @@ async function fetchArtistSongsStreams(spotifyId) {
   } catch {}
 
   const entry = { songs, rawList, expires: Date.now() + TTL_MS };
-  artistSongsCache.set(spotifyId, entry);
+  if (rawList.length > 0) {
+    artistSongsCache.set(spotifyId, entry);
+  }
   return entry;
 }
 

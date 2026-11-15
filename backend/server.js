@@ -468,8 +468,8 @@ async function handleApi(req, res, urlObj) {
       if (missing.length > 0) {
         try {
           const enriched = await Promise.race([
-            spotify.enrichTracksWithSpotifyStreams(missing.slice(0, 160)),
-            new Promise((resolve) => setTimeout(() => resolve(null), 5500)),
+            spotify.enrichTracksWithSpotifyStreams(missing.slice(0, 80)),
+            new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
           ]);
           if (Array.isArray(enriched)) {
             const byId = new Map();
@@ -483,6 +483,30 @@ async function handleApi(req, res, urlObj) {
               lib.playlists = (lib.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
               store.save();
             }
+          }
+          if (missing.length > 80 && !global.__sonaBgEnrichRunning) {
+            global.__sonaBgEnrichRunning = true;
+            (async () => {
+              try {
+                for (let i = 80; i < missing.length; i += 80) {
+                  const chunk = missing.slice(i, i + 80);
+                  const resChunk = await spotify.enrichTracksWithSpotifyStreams(chunk);
+                  const byId = new Map();
+                  for (const t of resChunk || []) {
+                    if (t?.videoId && t.spotifyStreams) byId.set(t.videoId, t.spotifyStreams);
+                  }
+                  if (byId.size > 0) {
+                    const cur = store.getAll();
+                    const apply = (arr) => (arr || []).map((t) => (t?.videoId && !t.spotifyStreams && byId.has(t.videoId) ? { ...t, spotifyStreams: byId.get(t.videoId) } : t));
+                    cur.likedSongs = apply(cur.likedSongs);
+                    cur.history = apply(cur.history);
+                    cur.playlists = (cur.playlists || []).map((p) => ({ ...p, tracks: apply(p.tracks) }));
+                    store.save();
+                  }
+                }
+              } catch {}
+              global.__sonaBgEnrichRunning = false;
+            })();
           }
         } catch {}
       }

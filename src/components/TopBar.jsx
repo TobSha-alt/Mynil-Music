@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Search, X, Sparkles, Play, ArrowUpRight, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X, Sparkles, Play, ArrowUpRight, User, Maximize2, Minimize2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import ArtistAvatar from './ArtistAvatar';
 import CoverArt from './CoverArt';
@@ -25,7 +25,22 @@ export default function TopBar({
   const [suggestions, setSuggestions] = useState({ queries: [], items: [] });
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
   const boxRef = useRef(null);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
 
   const totalStreams = Object.values(library.playCounts || {}).reduce((a, b) => a + b, 0);
 
@@ -282,6 +297,18 @@ export default function TopBar({
           <span className="hidden sm:inline">
             {accountStatus?.mode === 'account' ? `@${accountStatus.user?.username}` : 'Guest'}
           </span>
+        </button>
+
+        <button
+          onClick={toggleFullscreen}
+          className={`w-8 h-8 rounded-full border flex items-center justify-center transition active:scale-90 ${
+            isFullscreen
+              ? 'bg-emerald-500/20 border-emerald-400/35 text-emerald-300'
+              : 'bg-white/[0.06] hover:bg-white/[0.13] border-white/[0.08] text-zinc-200'
+          }`}
+          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
       </div>
     </header>
