@@ -627,7 +627,7 @@ export default function TheaterModal({ onOpenArtist }) {
             ) : (
               <div
                 ref={panAlbumRef}
-                className={`relative overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.75)] ring-1 ring-white/15 will-change-transform transition-all duration-300 ${
+                className={`relative overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.75)] ring-1 ring-white/15 will-change-transform transition-[width,height,border-radius] duration-300 ${
                   albumSize === 'compact'
                     ? 'w-56 h-56 sm:w-64 sm:h-64'
                     : albumSize === 'large'
