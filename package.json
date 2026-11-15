@@ -1,7 +1,7 @@
 {
-  "name": "sona",
+  "name": "mynil-music",
   "version": "1.0.0",
-  "description": "Sona — Instant YouTube-powered Music & Music Video Streaming App",
+  "description": "Mynil Music — Instant YouTube-powered Music & Music Video Streaming App",
   "main": "backend/server.js",
   "author": "Toby",
   "private": true,
@@ -13,8 +13,8 @@
     "dev:vite": "vite",
     "dev": "concurrently -k --success first \"npm:dev:server\" \"npm:dev:vite\"",
     "build": "vite build",
-    "build:win": "dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --no-self-contained -o Sona-win",
-    "start": "npm run build && node -e \"const {spawn}=require('child_process');const cmd=process.platform==='win32'?'Sona-win\\\\Sona.exe':'open';const args=process.platform==='win32'?[]:['./Sona.app'];spawn(cmd,args,{detached:true,stdio:'ignore'}).unref();\""
+    "build:win": "dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --no-self-contained -o Mynil-win",
+    "start": "npm run build && node -e \"const {spawn}=require('child_process');const cmd=process.platform==='win32'?'Mynil-win\\\\Mynil.exe':'open';const args=process.platform==='win32'?[]:['./Mynil.app'];spawn(cmd,args,{detached:true,stdio:'ignore'}).unref();\""
   },
   "dependencies": {
     "lucide-react": "^0.460.0"

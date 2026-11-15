@@ -83,7 +83,7 @@ export default function AccountModal({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-white">
-                {isSignedIn ? `@${accountStatus.user?.username}` : 'Welcome to Sona'}
+                {isSignedIn ? `@${accountStatus.user?.username}` : 'Welcome to Mynil Music'}
               </h2>
               <p className="text-xs text-zinc-400">
                 {isSignedIn

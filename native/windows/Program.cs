@@ -39,7 +39,7 @@ internal sealed class SonaForm : Form
 
     public SonaForm()
     {
-        Text = "Sona";
+        Text = "Mynil Music";
         Width = 1420;
         Height = 900;
         MinimumSize = new Size(1020, 680);
@@ -122,7 +122,7 @@ internal sealed class SonaForm : Form
         var serverScript = Path.Combine(root, "backend", "server.js");
         if (!File.Exists(serverScript))
         {
-            ShowFatal($"Could not find Sona backend at:\n{serverScript}");
+            ShowFatal($"Could not find Mynil Music backend at:\n{serverScript}");
             return;
         }
 
@@ -160,7 +160,7 @@ internal sealed class SonaForm : Form
         }
         catch (Exception ex)
         {
-            ShowFatal($"Could not start Sona backend:\n{ex.Message}");
+            ShowFatal($"Could not start Mynil Music backend:\n{ex.Message}");
             return;
         }
 
@@ -168,7 +168,7 @@ internal sealed class SonaForm : Form
         var completed = await Task.WhenAny(readyTcs.Task, timeoutTask);
         if (completed != readyTcs.Task)
         {
-            ShowFatal("Sona server failed to bind a local port within 10 seconds.");
+            ShowFatal("Mynil Music server failed to bind a local port within 10 seconds.");
             return;
         }
 
@@ -282,7 +282,7 @@ internal sealed class SonaForm : Form
     private void ShowFatal(string message)
     {
         StopBackend();
-        MessageBox.Show(this, message, "Sona Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        MessageBox.Show(this, message, "Mynil Music Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         Close();
     }
 }

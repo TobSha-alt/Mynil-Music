@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, Plus, ListMusic, Users, Disc3, Play } from 'lucide-react';
+import { Heart, Plus, ListMusic, Users, Disc3, Play, Download, X, Loader2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { ArtistCard, AlbumCard } from '../components/MediaCards';
 import TrackRow from '../components/TrackRow';
@@ -13,8 +13,34 @@ export default function LibraryView({
   onOpenAlbum,
   onOpenNewPlaylist,
 }) {
-  const { library, playTrack } = usePlayer();
+  const { library, playTrack, importPlaylist, showToast } = usePlayer();
   const [tab, setTab] = useState(initialTab);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importInput, setImportInput] = useState('');
+  const [importName, setImportName] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    if (!importInput.trim()) return;
+    setImporting(true);
+    setImportError('');
+    try {
+      const res = await importPlaylist({ urlOrText: importInput.trim(), name: importName.trim() });
+      showToast?.(`Imported "${res?.playlist?.name || 'Playlist'}" (${res?.importedCount || 0} tracks)`);
+      setImportOpen(false);
+      setImportInput('');
+      setImportName('');
+      if (res?.playlist?.id) {
+        onNavigate({ name: 'custom-playlist', id: res.playlist.id });
+      }
+    } catch (err) {
+      setImportError(err?.message || 'Failed to import playlist');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
@@ -31,13 +57,119 @@ export default function LibraryView({
     <div className="px-8 py-6 pb-14 space-y-6 animate-view-enter">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-3xl font-extrabold text-white tracking-tight">Your Library</h1>
-        <button
-          onClick={onOpenNewPlaylist}
-          className="px-4 py-2 rounded-full bg-emerald-400 text-black text-xs font-bold flex items-center gap-1.5 btn-glow"
-        >
-          <Plus size={15} /> New Playlist
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setImportError('');
+              setImportOpen(true);
+            }}
+            className="px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <Download size={14} /> Import Playlist
+          </button>
+          <button
+            onClick={onOpenNewPlaylist}
+            className="px-4 py-2 rounded-full bg-emerald-400 text-black text-xs font-bold flex items-center gap-1.5 btn-glow"
+          >
+            <Plus size={15} /> New Playlist
+          </button>
+        </div>
       </div>
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleImportSubmit}
+            className="w-full max-w-lg rounded-2xl bg-zinc-900 border border-white/15 p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-extrabold text-white">Import Playlist</h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Paste a Spotify, YouTube Music, or Amazon Music playlist link (or a tracklist).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !importing && setImportOpen(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+              <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                Spotify
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/25">
+                YouTube Music
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/25">
+                Amazon Music
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-white/[0.06] text-zinc-300 border border-white/10">
+                Tracklist Text
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-zinc-300">Playlist Link or Tracklist</label>
+              <textarea
+                rows={4}
+                value={importInput}
+                onChange={(e) => setImportInput(e.target.value)}
+                placeholder={'https://open.spotify.com/playlist/...\nhttps://music.youtube.com/playlist?list=...\nhttps://music.amazon.com/user-playlists/...\n\nOr paste one "Song - Artist" per line'}
+                required
+                className="w-full px-3 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-zinc-500 outline-none focus:border-emerald-400/60 resize-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-300">Playlist Name (optional)</label>
+              <input
+                type="text"
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+                placeholder="Leave blank to use original playlist title"
+                className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-zinc-500 outline-none focus:border-emerald-400/60"
+              />
+            </div>
+
+            {importError && (
+              <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2">
+                {importError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={importing}
+                onClick={() => setImportOpen(false)}
+                className="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-zinc-200 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={importing || !importInput.trim()}
+                className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
+              >
+                {importing ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Importing…
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} /> Import Playlist
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="inline-flex items-center gap-1 p-1 rounded-full bg-white/[0.04] border border-white/[0.07] flex-wrap">
         {tabs.map((t) => (

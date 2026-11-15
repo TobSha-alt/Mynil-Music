@@ -60,7 +60,8 @@ export default function Sidebar({
                 <rect x="15" y="8" width="2" height="4" rx="1" fill="url(#sonaLogoGrad)" />
               </svg>
             </div>
-            <span className="font-extrabold text-[15px] tracking-tight text-white">Sona</span>
+            <span className="font-extrabold text-[15px] tracking-tight text-white">Mynil</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/80">Music</span>
           </div>
         )}
         <button

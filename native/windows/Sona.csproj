@@ -5,7 +5,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>Sona</AssemblyName>
+    <AssemblyName>Mynil</AssemblyName>
+    <Product>Mynil Music</Product>
+    <Title>Mynil Music</Title>
     <ApplicationIcon>Sona.ico</ApplicationIcon>
   </PropertyGroup>
 

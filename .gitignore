@@ -2,6 +2,8 @@ node_modules/
 dist/
 Sona-win/
 Sona.app/
+Mynil-win/
+Mynil.app/
 release/
 native/windows/bin/
 native/windows/obj/

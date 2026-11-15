@@ -221,7 +221,7 @@ export default function SettingsView() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sona-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `mynil-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast?.('Library backup downloaded');
@@ -351,7 +351,7 @@ export default function SettingsView() {
       } else if (st?.error) {
         showToast(st.error);
       } else {
-        showToast('Sona is up to date');
+        showToast('Mynil Music is up to date');
       }
     } finally {
       setCheckingUpdates(false);
@@ -466,7 +466,7 @@ export default function SettingsView() {
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-xs text-zinc-400">
-                  Use Sona as a <strong>Guest</strong> or sign in with a <strong>Username &amp; Password</strong>{' '}
+                  Use Mynil Music as a <strong>Guest</strong> or sign in with a <strong>Username &amp; Password</strong>{' '}
                   (no email required) to sync playlists, likes, albums &amp; history across devices.
                 </p>
                 <div className="flex items-center gap-1 p-1 rounded-lg bg-white/[0.05]">
@@ -534,7 +534,7 @@ export default function SettingsView() {
               <div>
                 <h2 className="text-base font-bold text-white">Offline Downloads</h2>
                 <p className="text-xs text-zinc-400">
-                  Cached in Sona&apos;s encrypted offline store (no MP3/MP4 files). Only downloaded songs play when offline.
+                  Cached in Mynil&apos;s encrypted offline store (no MP3/MP4 files). Only downloaded songs play when offline.
                 </p>
               </div>
             </div>
@@ -1000,7 +1000,7 @@ export default function SettingsView() {
             />
             <ToggleRow
               title="Resume Last Track on Launch"
-              description="Load your last played song paused in the bar when Sona opens"
+              description="Load your last played song paused in the bar when Mynil opens"
               checked={restoreLastTrack}
               onChange={(v) => updatePref({ restoreLastTrack: v })}
             />

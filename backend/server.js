@@ -15,6 +15,7 @@ const scanner = require('./scanner');
 const offline = require('./offline');
 const offsetDetector = require('./offset');
 const updater = require('./updater');
+const importer = require('./importer');
 
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
@@ -472,6 +473,27 @@ async function handleApi(req, res, urlObj) {
     if (pathname === '/api/library/playlist/create' && req.method === 'POST') {
       const body = await readJsonBody(req);
       return sendJson(res, 200, store.createPlaylist(body));
+    }
+
+    if (pathname === '/api/library/playlist/import' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const imported = await importer.importPlaylist({
+        urlOrText: body.urlOrText || '',
+        name: body.name || '',
+      });
+      const created = store.createPlaylist({
+        name: imported.title,
+        description: imported.description || '',
+        initialTracks: imported.tracks || [],
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        source: imported.source,
+        importedCount: imported.tracks.length,
+        totalFound: imported.totalFound,
+        playlist: created.playlist,
+        state: created.state,
+      });
     }
 
     if (pathname === '/api/library/playlist/update' && req.method === 'POST') {

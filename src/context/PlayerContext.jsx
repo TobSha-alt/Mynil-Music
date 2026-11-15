@@ -186,7 +186,7 @@ export function PlayerProvider({ children }) {
               navigator.mediaSession.metadata = new window.MediaMetadata({
                 title: lastTrack.title || 'Unknown Track',
                 artist: lastTrack.artist || 'Unknown Artist',
-                album: lastTrack.album || 'Sona',
+                album: lastTrack.album || 'Mynil Music',
                 artwork: [{ src: safeCover, sizes: '544x544', type: 'image/jpeg' }],
               });
             } catch {}
@@ -534,7 +534,7 @@ export function PlayerProvider({ children }) {
         navigator.mediaSession.metadata = new window.MediaMetadata({
           title: track.title || 'Unknown Track',
           artist: track.artist || 'Unknown Artist',
-          album: track.album || 'Sona',
+          album: track.album || 'Mynil Music',
           artwork: [{ src: safeCover, sizes: '544x544', type: 'image/jpeg' }],
         });
       }
@@ -1340,6 +1340,12 @@ export function PlayerProvider({ children }) {
     return res?.playlist;
   }, []);
 
+  const importPlaylist = useCallback(async (payload) => {
+    const res = await window.sona.importPlaylist(payload);
+    if (res?.state) setLibrary(res.state);
+    return res;
+  }, []);
+
   const updatePlaylist = useCallback(async (id, patch) => {
     const next = await window.sona.updatePlaylist(id, patch);
     setLibrary(next);
@@ -1455,6 +1461,7 @@ export function PlayerProvider({ children }) {
       toggleFollowArtist,
       toggleSaveAlbum,
       createPlaylist,
+      importPlaylist,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,
@@ -1520,6 +1527,7 @@ export function PlayerProvider({ children }) {
       toggleFollowArtist,
       toggleSaveAlbum,
       createPlaylist,
+      importPlaylist,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,

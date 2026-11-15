@@ -218,7 +218,7 @@ export default function TrackRow({
         {library.preferences?.showPlayCounts && streamCount > 0 && !compact && (
           <span
             className="hidden lg:inline-block text-[10px] font-mono text-emerald-400/85 px-1.5 py-0.5 rounded-full bg-emerald-400/10"
-            title="Your plays in Sona"
+            title="Your plays in Mynil"
           >
             {streamCount}×
           </span>

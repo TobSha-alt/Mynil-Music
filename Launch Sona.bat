@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0Sona-win\Sona.exe"
+start "" "%~dp0Mynil-win\Mynil.exe"

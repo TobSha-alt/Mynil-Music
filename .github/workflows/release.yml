@@ -1,4 +1,4 @@
-name: Build & Release Sona
+name: Build & Release Mynil Music
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
           npm run build
 
       - name: Publish Windows App
-        run: dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o Sona-win
+        run: dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o Mynil-win
 
       - name: Build Windows Installer (Inno Setup)
         shell: pwsh
@@ -78,16 +78,16 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build macOS Sona.app & DMG Installer
+      - name: Build macOS Mynil.app & DMG Installer
         run: |
           python3 -m pip install --quiet pillow || true
           chmod +x native/build_app.sh
           ./native/build_app.sh
           mkdir -p release dmg_stage
-          cp -R Sona.app dmg_stage/
-          cp -R backend dist package.json dmg_stage/Sona.app/Contents/Resources/ 2>/dev/null || true
+          cp -R Mynil.app dmg_stage/
+          cp -R backend dist package.json dmg_stage/Mynil.app/Contents/Resources/ 2>/dev/null || true
           ln -s /Applications dmg_stage/Applications
-          hdiutil create -volname "Sona" -srcfolder dmg_stage -ov -format UDZO "release/Sona-${{ steps.ver.outputs.version }}-macOS.dmg"
+          hdiutil create -volname "Mynil Music" -srcfolder dmg_stage -ov -format UDZO "release/Mynil-${{ steps.ver.outputs.version }}-macOS.dmg"
 
       - uses: actions/upload-artifact@v4
         with:

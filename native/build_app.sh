@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$ROOT/Sona.app"
+APP_DIR="$ROOT/Mynil.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -129,17 +129,17 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>Sona</string>
+    <string>Mynil</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.toby.sona</string>
+    <string>com.toby.mynil</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Sona</string>
+    <string>Mynil Music</string>
     <key>CFBundleDisplayName</key>
-    <string>Sona</string>
+    <string>Mynil Music</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -159,6 +159,6 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-swiftc -O -framework Cocoa -framework WebKit "$ROOT/native/SonaApp.swift" -o "$MACOS/Sona"
+swiftc -O -framework Cocoa -framework WebKit "$ROOT/native/SonaApp.swift" -o "$MACOS/Mynil"
 codesign --force --deep --sign - "$APP_DIR"
 echo "Built $APP_DIR"

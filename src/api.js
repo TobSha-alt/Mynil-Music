@@ -65,6 +65,7 @@ if (!window.sona) {
     toggleFollowArtist: (artist) => jsonPost('/api/library/follow', artist),
     toggleSaveAlbum: (album) => jsonPost('/api/library/album', album),
     createPlaylist: (payload) => jsonPost('/api/library/playlist/create', payload),
+    importPlaylist: (payload) => jsonPost('/api/library/playlist/import', payload),
     updatePlaylist: (id, patch) => jsonPost('/api/library/playlist/update', { id, patch }),
     deletePlaylist: (id) => jsonPost('/api/library/playlist/delete', { id }),
     addToPlaylist: (playlistId, track) => jsonPost('/api/library/playlist/add', { playlistId, track }),
