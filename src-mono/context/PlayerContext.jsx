@@ -158,7 +158,7 @@ export function PlayerProvider({ children }) {
         const clampedRate = Math.max(0.5, Math.min(2, savedRate || 1));
         setPlaybackRateState(clampedRate);
         if (audioRef.current) {
-          audioRef.current.muted = isMuted;
+          audioRef.current.muted = gainNodeRef.current ? false : isMuted;
           audioRef.current.volume = gainNodeRef.current ? 1 : isMuted ? 0 : vol;
           audioRef.current.playbackRate = clampedRate;
         }
@@ -239,7 +239,8 @@ export function PlayerProvider({ children }) {
       highFilter.connect(analyser);
       analyser.connect(gainNode);
       gainNode.connect(ctx.destination);
-      // Let GainNode handle smooth volume & mute scaling cleanly without double-attenuation
+      // Let GainNode handle smooth volume & mute scaling cleanly so analyser stays active when muted
+      audioRef.current.muted = false;
       audioRef.current.volume = 1;
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
@@ -505,7 +506,7 @@ export function PlayerProvider({ children }) {
 
       const isMutedNow = Boolean(library.preferences?.muted);
       const targetVol = library.preferences?.volume ?? 0.85;
-      audio.muted = isMutedNow;
+      audio.muted = gainNodeRef.current ? false : isMutedNow;
       audio.volume = gainNodeRef.current ? 1 : isMutedNow ? 0 : targetVol;
       if (gainNodeRef.current) {
         rampGain(isMutedNow ? 0 : targetVol, 0.015);
@@ -1143,7 +1144,7 @@ export function PlayerProvider({ children }) {
       const clamped = Math.max(0, Math.min(1, vol));
       const isMuted = clamped === 0;
       if (audioRef.current) {
-        audioRef.current.muted = isMuted;
+        audioRef.current.muted = gainNodeRef.current ? false : isMuted;
         audioRef.current.volume = gainNodeRef.current ? 1 : clamped;
       }
       if (gainNodeRef.current) {
@@ -1162,7 +1163,7 @@ export function PlayerProvider({ children }) {
     const nextMuted = !library.preferences.muted;
     const restoredVol = library.preferences.volume > 0 ? library.preferences.volume : 0.85;
     if (audioRef.current) {
-      audioRef.current.muted = nextMuted;
+      audioRef.current.muted = gainNodeRef.current ? false : nextMuted;
       audioRef.current.volume = gainNodeRef.current ? 1 : nextMuted ? 0 : restoredVol;
     }
     if (gainNodeRef.current) {
