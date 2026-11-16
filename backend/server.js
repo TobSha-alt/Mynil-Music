@@ -16,6 +16,7 @@ const offline = require('./offline');
 const offsetDetector = require('./offset');
 const updater = require('./updater');
 const importer = require('./importer');
+const discordRpc = require('./discord');
 
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
@@ -685,6 +686,32 @@ async function handleApi(req, res, urlObj) {
 
     if (pathname === '/api/library/playlist/dedupe' && req.method === 'POST') {
       return sendJson(res, 200, store.deleteDuplicatePlaylists());
+    }
+
+    if (pathname === '/api/library/playlist/dedupe-tracks' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, store.dedupePlaylistTracks(body.playlistId));
+    }
+
+    if (pathname === '/api/stats' && req.method === 'GET') {
+      const range = searchParams.get('range') || 'month';
+      return sendJson(res, 200, store.getStats(range));
+    }
+
+    if (pathname === '/api/mixes' && req.method === 'GET') {
+      const refresh = searchParams.get('refresh') === '1';
+      const mixes = await recommendations.getSessionMixes(store.getAll(), { refresh });
+      return sendJson(res, 200, { mixes });
+    }
+
+    if (pathname === '/api/discord/presence' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (body?.clear || store.getAll().preferences?.discordRpcEnabled === false) {
+        await discordRpc.clearPresence();
+        return sendJson(res, 200, { ok: true, active: false });
+      }
+      const ok = await discordRpc.updatePresence(body || {});
+      return sendJson(res, 200, { ok: true, active: ok });
     }
 
     if (pathname === '/api/library/playlist/add' && req.method === 'POST') {

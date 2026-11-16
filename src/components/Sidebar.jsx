@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Search, Library, Heart, Plus, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react';
+import { Home, Search, Library, Heart, Plus, PanelLeftClose, PanelLeftOpen, Settings, BarChart3 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import ArtistAvatar from './ArtistAvatar';
 import CoverArt from './CoverArt';
@@ -18,6 +18,7 @@ export default function Sidebar({
     { id: 'home', label: 'Home', icon: Home },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'library', label: 'Your Library', icon: Library },
+    { id: 'stats', label: 'Stats', icon: BarChart3 },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 

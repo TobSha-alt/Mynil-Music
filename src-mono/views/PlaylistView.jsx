@@ -19,7 +19,9 @@ export default function PlaylistView({
     playTrack,
     createPlaylist,
     deletePlaylist,
+    dedupePlaylistTracks,
     refreshLibrary,
+    showToast,
     isOnline,
     downloadedIds,
     downloadingIds,
@@ -223,6 +225,19 @@ export default function PlaylistView({
                   >
                     <Pencil size={13} /> Edit
                   </button>
+                  {tracks.length > 1 && (
+                    <button
+                      onClick={async () => {
+                        const res = await dedupePlaylistTracks(customPl.id);
+                        const c = res?.removedCount || 0;
+                        showToast?.(c > 0 ? `Removed ${c} duplicate track${c === 1 ? '' : 's'}` : 'No duplicate tracks found');
+                      }}
+                      className="px-4 py-2.5 rounded-full bg-white/[0.07] hover:bg-white/[0.15] text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition"
+                      title="Remove duplicate tracks (matched strictly by artist + song title)"
+                    >
+                      <Trash2 size={13} /> Remove Duplicates
+                    </button>
+                  )}
                   <button
                     onClick={handleDelete}
                     className="px-4 py-2.5 rounded-full bg-white/15 hover:bg-white/25 text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition"

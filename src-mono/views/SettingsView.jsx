@@ -1171,6 +1171,120 @@ export default function SettingsView() {
           </div>
         </section>
 
+        {/* Monochrome Contrast Accent */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-4">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Palette size={16} className="text-white" />
+            Monochrome Contrast Accent
+          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            {[
+              { id: 'adaptive', label: 'Adaptive Luminance' },
+              { id: 'custom', label: 'Locked Shade' },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => updatePref({ accentMode: m.id })}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition ${
+                  (prefs.accentMode || 'adaptive') === m.id
+                    ? 'bg-white text-black'
+                    : 'bg-white/[0.07] text-zinc-300 hover:bg-white/[0.14]'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {(prefs.accentMode || 'adaptive') === 'custom' && (
+            <div className="flex items-center gap-2.5 flex-wrap pt-1">
+              {[
+                { name: 'Pure White', rgb: '255, 255, 255', hex: '#ffffff' },
+                { name: 'Silver Mist', rgb: '212, 212, 216', hex: '#d4d4d8' },
+                { name: 'Ash Gray', rgb: '161, 161, 170', hex: '#a1a1aa' },
+                { name: 'Graphite', rgb: '113, 113, 122', hex: '#71717a' },
+              ].map((sw) => (
+                <button
+                  key={sw.name}
+                  type="button"
+                  onClick={() => updatePref({ accentMode: 'custom', customAccent: sw.rgb })}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
+                    prefs.customAccent === sw.rgb
+                      ? 'border-white bg-white/15 text-white'
+                      : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: sw.hex }} />
+                  {sw.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Crossfade & Gapless Playback */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-3">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Sliders size={16} className="text-white" />
+            Playback Transitions
+          </h2>
+          <ToggleRow
+            title="Crossfade Between Tracks"
+            description="Smoothly fade out the current song into the next track"
+            checked={Boolean(prefs.crossfadeEnabled)}
+            onChange={(v) => updatePref({ crossfadeEnabled: v })}
+          />
+          {prefs.crossfadeEnabled && (
+            <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-300 font-semibold">Crossfade Duration</span>
+                <span className="font-mono text-white font-bold">{prefs.crossfadeSec ?? 5}s</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={12}
+                step={1}
+                value={prefs.crossfadeSec ?? 5}
+                onChange={(e) => updatePref({ crossfadeSec: Number(e.target.value) })}
+                className="w-full accent-white cursor-pointer"
+              />
+            </div>
+          )}
+          <ToggleRow
+            title="Gapless Playback"
+            description="Pre-buffer upcoming album tracks for zero-gap transitions"
+            checked={prefs.gaplessEnabled !== false}
+            onChange={(v) => updatePref({ gaplessEnabled: v })}
+          />
+        </section>
+
+        {/* Desktop & Integrations */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-3">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Sparkles size={16} className="text-white" />
+            Desktop & Integrations
+          </h2>
+          <ToggleRow
+            title="Floating Mini-Player"
+            description="Show a compact floating player with live waveform"
+            checked={Boolean(prefs.miniPlayerEnabled)}
+            onChange={(v) => updatePref({ miniPlayerEnabled: v })}
+          />
+          <ToggleRow
+            title="Discord Rich Presence"
+            description="Display your currently playing song and progress on Discord"
+            checked={prefs.discordRpcEnabled !== false}
+            onChange={(v) => updatePref({ discordRpcEnabled: v })}
+          />
+          <ToggleRow
+            title="Minimize to System Tray"
+            description="Keep playback running in the tray when closing or minimizing on Windows"
+            checked={Boolean(prefs.minimizeToTray)}
+            onChange={(v) => updatePref({ minimizeToTray: v })}
+          />
+        </section>
+
         {/* App Updates (GitHub Releases) */}
         <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">

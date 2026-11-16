@@ -159,6 +159,6 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-swiftc -O -framework Cocoa -framework WebKit "$ROOT/native/SonaApp.swift" -o "$MACOS/Mynil"
+swiftc -O -framework Cocoa -framework WebKit -framework MediaPlayer "$ROOT/native/SonaApp.swift" -o "$MACOS/Mynil"
 codesign --force --deep --sign - "$APP_DIR"
 echo "Built $APP_DIR"

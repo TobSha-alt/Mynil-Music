@@ -285,15 +285,43 @@ export function PlayerProvider({ children }) {
     }
   }, []);
 
-  // Update dynamic CSS accent color from cover art via local same-origin cover proxy
+  // Update dynamic CSS accent color from cover art or custom accent preference
   useEffect(() => {
+    const mode = library.preferences?.accentMode || 'adaptive';
+    const custom = library.preferences?.customAccent;
+    if (mode === 'custom' && custom) {
+      setAccentRgb(custom);
+      document.documentElement.style.setProperty('--accent', custom);
+      return;
+    }
     if (!currentTrack) return;
     const coverSrc = getCoverUrl(currentTrack);
     extractDominantColor(coverSrc).then((rgb) => {
+      if (libraryRef.current?.preferences?.accentMode === 'custom') return;
       setAccentRgb(rgb);
       document.documentElement.style.setProperty('--accent', rgb);
     });
-  }, [currentTrack?.videoId, currentTrack?.thumbnail]);
+  }, [currentTrack?.videoId, currentTrack?.thumbnail, library.preferences?.accentMode, library.preferences?.customAccent]);
+
+  // Sync Discord Rich Presence whenever track or play state changes
+  useEffect(() => {
+    const enabled = library.preferences?.discordRpcEnabled !== false;
+    if (!enabled || !currentTrack) {
+      window.sona?.updateDiscordPresence?.({ clear: true }).catch(() => {});
+      return;
+    }
+    window.sona
+      ?.updateDiscordPresence?.({
+        title: currentTrack.title || '',
+        artist: currentTrack.artist || '',
+        album: currentTrack.album || '',
+        thumbnail: currentTrack.thumbnail || '',
+        durationSec: duration || currentTrack.durationSec || 0,
+        positionSec: audioRef.current?.currentTime || 0,
+        isPlaying,
+      })
+      .catch(() => {});
+  }, [currentTrack?.videoId, isPlaying, duration, library.preferences?.discordRpcEnabled]);
 
   // Fetch synced/plain lyrics whenever currentTrack or newly-resolved duration updates
   const lyricsFetchedKeyRef = useRef('');
@@ -857,10 +885,30 @@ export function PlayerProvider({ children }) {
         v.play().catch(() => {});
       }
     };
+    const crossfadeTriggeredRef = { current: false };
     const onTimeUpdate = () => {
-      setCurrentTime(audio.currentTime || 0);
-      if (audio.duration && Number.isFinite(audio.duration)) {
-        setDuration(audio.duration);
+      const curT = audio.currentTime || 0;
+      const durT = audio.duration && Number.isFinite(audio.duration) ? audio.duration : 0;
+      setCurrentTime(curT);
+      if (durT > 0) {
+        setDuration(durT);
+        const prefs = libraryRef.current?.preferences || {};
+        const remaining = durT - curT;
+        if (
+          prefs.crossfadeEnabled &&
+          prefs.repeat !== 'one' &&
+          !crossfadeTriggeredRef.current &&
+          remaining > 0.15 &&
+          remaining <= Math.max(1, Math.min(12, Number(prefs.crossfadeSec) || 5))
+        ) {
+          crossfadeTriggeredRef.current = true;
+          const fadeDur = Math.max(0.4, Math.min(remaining, 1.8));
+          rampGain(0, fadeDur);
+          setTimeout(() => {
+            crossfadeTriggeredRef.current = false;
+            next();
+          }, fadeDur * 1000);
+        }
       }
       // Gently keep video clock in sync without interrupting active seeks/buffering
       const v = videoRef.current;
@@ -997,6 +1045,22 @@ export function PlayerProvider({ children }) {
     const id = setInterval(updateRemaining, 5000);
     return () => clearInterval(id);
   }, [sleepTimer, showToast]);
+
+  // Global media keys from native Windows/macOS host
+  useEffect(() => {
+    const onMediaKey = (e) => {
+      const action = e?.detail;
+      if (action === 'playpause') togglePlay();
+      else if (action === 'next') next();
+      else if (action === 'prev') prev();
+      else if (action === 'stop' && audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    };
+    window.addEventListener('mynil-media-key', onMediaKey);
+    return () => window.removeEventListener('mynil-media-key', onMediaKey);
+  }, [togglePlay, next, prev]);
 
   // Native Media Session controls
   useEffect(() => {
@@ -1389,6 +1453,12 @@ export function PlayerProvider({ children }) {
     return res;
   }, []);
 
+  const dedupePlaylistTracks = useCallback(async (playlistId) => {
+    const res = await window.sona.dedupePlaylistTracks(playlistId);
+    if (res?.state) setLibrary(res.state);
+    return res;
+  }, []);
+
   const updatePlaylist = useCallback(async (id, patch) => {
     const next = await window.sona.updatePlaylist(id, patch);
     setLibrary(next);
@@ -1507,6 +1577,7 @@ export function PlayerProvider({ children }) {
       importPlaylist,
       importMusicTaste,
       dedupePlaylists,
+      dedupePlaylistTracks,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,
@@ -1575,6 +1646,7 @@ export function PlayerProvider({ children }) {
       importPlaylist,
       importMusicTaste,
       dedupePlaylists,
+      dedupePlaylistTracks,
       updatePlaylist,
       deletePlaylist,
       addToPlaylist,

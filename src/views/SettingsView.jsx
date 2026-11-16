@@ -1171,6 +1171,137 @@ export default function SettingsView() {
           </div>
         </section>
 
+        {/* Theme & Custom Accent Color */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-4">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Palette size={16} className="text-emerald-400" />
+            Theme & Accent Color
+          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            {[
+              { id: 'adaptive', label: 'Adaptive (Album Art)' },
+              { id: 'custom', label: 'Custom Accent' },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => updatePref({ accentMode: m.id })}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition ${
+                  (prefs.accentMode || 'adaptive') === m.id
+                    ? 'bg-emerald-400 text-black'
+                    : 'bg-white/[0.07] text-zinc-300 hover:bg-white/[0.14]'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {(prefs.accentMode || 'adaptive') === 'custom' && (
+            <div className="flex items-center gap-2.5 flex-wrap pt-1">
+              {[
+                { name: 'Emerald', rgb: '16, 185, 129', hex: '#10b981' },
+                { name: 'Cyan', rgb: '56, 189, 248', hex: '#38bdf8' },
+                { name: 'Violet', rgb: '168, 85, 247', hex: '#a855f7' },
+                { name: 'Rose', rgb: '244, 63, 94', hex: '#f43f5e' },
+                { name: 'Amber', rgb: '245, 158, 11', hex: '#f59e0b' },
+                { name: 'Crimson', rgb: '239, 68, 68', hex: '#ef4444' },
+                { name: 'Pure White', rgb: '255, 255, 255', hex: '#ffffff' },
+              ].map((sw) => (
+                <button
+                  key={sw.name}
+                  type="button"
+                  onClick={() => updatePref({ accentMode: 'custom', customAccent: sw.rgb })}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
+                    prefs.customAccent === sw.rgb
+                      ? 'border-white bg-white/15 text-white'
+                      : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: sw.hex }} />
+                  {sw.name}
+                </button>
+              ))}
+              <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.04] text-xs text-zinc-300 cursor-pointer">
+                Pick:
+                <input
+                  type="color"
+                  onChange={(e) => {
+                    const hex = e.target.value.replace('#', '');
+                    const r = parseInt(hex.slice(0, 2), 16) || 16;
+                    const g = parseInt(hex.slice(2, 4), 16) || 185;
+                    const b = parseInt(hex.slice(4, 6), 16) || 129;
+                    updatePref({ accentMode: 'custom', customAccent: `${r}, ${g}, ${b}` });
+                  }}
+                  className="w-5 h-5 bg-transparent border-0 cursor-pointer"
+                />
+              </label>
+            </div>
+          )}
+        </section>
+
+        {/* Crossfade & Gapless Playback */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-3">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Sliders size={16} className="text-emerald-400" />
+            Playback Transitions
+          </h2>
+          <ToggleRow
+            title="Crossfade Between Tracks"
+            description="Smoothly fade out the current song into the next track"
+            checked={Boolean(prefs.crossfadeEnabled)}
+            onChange={(v) => updatePref({ crossfadeEnabled: v })}
+          />
+          {prefs.crossfadeEnabled && (
+            <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-300 font-semibold">Crossfade Duration</span>
+                <span className="font-mono text-emerald-300 font-bold">{prefs.crossfadeSec ?? 5}s</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={12}
+                step={1}
+                value={prefs.crossfadeSec ?? 5}
+                onChange={(e) => updatePref({ crossfadeSec: Number(e.target.value) })}
+                className="w-full accent-emerald-400 cursor-pointer"
+              />
+            </div>
+          )}
+          <ToggleRow
+            title="Gapless Playback"
+            description="Pre-buffer upcoming album tracks for zero-gap transitions"
+            checked={prefs.gaplessEnabled !== false}
+            onChange={(v) => updatePref({ gaplessEnabled: v })}
+          />
+        </section>
+
+        {/* Desktop & Integrations */}
+        <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-3">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Sparkles size={16} className="text-emerald-400" />
+            Desktop & Integrations
+          </h2>
+          <ToggleRow
+            title="Floating Mini-Player"
+            description="Show a compact floating player with live waveform"
+            checked={Boolean(prefs.miniPlayerEnabled)}
+            onChange={(v) => updatePref({ miniPlayerEnabled: v })}
+          />
+          <ToggleRow
+            title="Discord Rich Presence"
+            description="Display your currently playing song and progress on Discord"
+            checked={prefs.discordRpcEnabled !== false}
+            onChange={(v) => updatePref({ discordRpcEnabled: v })}
+          />
+          <ToggleRow
+            title="Minimize to System Tray"
+            description="Keep playback running in the tray when closing or minimizing on Windows"
+            checked={Boolean(prefs.minimizeToTray)}
+            onChange={(v) => updatePref({ minimizeToTray: v })}
+          />
+        </section>
+
         {/* App Updates (GitHub Releases) */}
         <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">

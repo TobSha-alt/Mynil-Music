@@ -16,19 +16,19 @@ const MOOD_CHIPS = [
 ];
 
 export default function HomeView({ onOpenArtist, onOpenAlbum, onOpenPlaylist, onNavigate }) {
-  const { library, playTrack, currentTrack, isPlaying, accentRgb, showToast } = usePlayer();
+  const { library, playTrack, createPlaylist, currentTrack, isPlaying, accentRgb, showToast } = usePlayer();
   const [shelves, setShelves] = useState([]);
+  const [sessionMixes, setSessionMixes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshingMix, setRefreshingMix] = useState(false);
   const [mixFilter, setMixFilter] = useState('all'); // 'all' | 'Popular' | 'Niche'
 
   const loadHome = (refresh = false) => {
     if (refresh) setRefreshingMix(true);
-    return window.sona
-      .getHome(refresh)
-      .then((res) => {
-        setShelves(res?.shelves || []);
-      })
+    return Promise.all([
+      window.sona.getHome(refresh).then((res) => setShelves(res?.shelves || [])),
+      window.sona.getSessionMixes?.(refresh).then((res) => setSessionMixes(res?.mixes || [])),
+    ])
       .catch(() => {})
       .finally(() => {
         setLoading(false);
@@ -38,17 +38,19 @@ export default function HomeView({ onOpenArtist, onOpenAlbum, onOpenPlaylist, on
 
   useEffect(() => {
     let cancelled = false;
-    window.sona
-      .getHome(false)
-      .then((res) => {
+    Promise.all([
+      window.sona.getHome(false).then((res) => {
         if (!cancelled) {
           setShelves(res?.shelves || []);
           setLoading(false);
         }
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
+      }),
+      window.sona.getSessionMixes?.(false).then((res) => {
+        if (!cancelled) setSessionMixes(res?.mixes || []);
+      }),
+    ]).catch(() => {
+      if (!cancelled) setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -168,6 +170,60 @@ export default function HomeView({ onOpenArtist, onOpenAlbum, onOpenPlaylist, on
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {library.followedArtists.slice(0, 6).map((artist) => (
                 <ArtistCard key={artist.id} artist={artist} onOpenArtist={onOpenArtist} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Dynamic Session Playlists */}
+        {sessionMixes.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Sparkles size={17} className="text-white" />
+                <h2 className="text-lg font-bold text-white">Made For You This Session</h2>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {sessionMixes.map((mix) => (
+                <div
+                  key={mix.id}
+                  onClick={() => mix.tracks?.[0] && playTrack(mix.tracks[0], mix.tracks)}
+                  className="p-4 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] cursor-pointer transition group flex flex-col justify-between gap-3"
+                >
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <CoverArt item={mix.tracks?.[0]} className="w-11 h-11 rounded-lg object-cover shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{mix.name}</p>
+                        <p className="text-[11px] text-zinc-400">{mix.tracks?.length || 0} tracks</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-400 line-clamp-2 mt-1">{mix.subtitle}</p>
+                  </div>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => mix.tracks?.[0] && playTrack(mix.tracks[0], mix.tracks)}
+                      className="px-3 py-1.5 rounded-full bg-white text-black text-xs font-bold flex items-center gap-1"
+                    >
+                      <Play size={11} fill="currentColor" /> Play
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const created = await createPlaylist({
+                          name: mix.name,
+                          description: mix.subtitle,
+                          initialTracks: mix.tracks,
+                        });
+                        showToast?.(`Saved "${mix.name}" to My Playlists`);
+                        if (created?.id) onNavigate({ name: 'custom-playlist', id: created.id });
+                      }}
+                      className="px-3 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white text-xs font-semibold"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </section>

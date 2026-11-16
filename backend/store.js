@@ -71,6 +71,7 @@ const DEFAULT_STATE = {
   playlists: [],
   history: [],
   playCounts: {},
+  playLog: [],
   preferences: {
     volume: 0.85,
     muted: false,
@@ -79,6 +80,14 @@ const DEFAULT_STATE = {
     autoplay: true,
     visualizer: true,
     backdrop: 'bokeh',
+    accentMode: 'adaptive',
+    customAccent: '16, 185, 129',
+    crossfadeEnabled: false,
+    crossfadeSec: 5,
+    gaplessEnabled: true,
+    miniPlayerEnabled: false,
+    discordRpcEnabled: true,
+    minimizeToTray: false,
     theaterLayout: 'split',
     theaterLyricsBox: 'glass',
     theaterAlbumSize: 'medium',
@@ -384,13 +393,180 @@ class LibraryStore {
 
   recordPlay(track) {
     if (!track?.videoId) return this.state;
+    const now = Date.now();
     this.state.playCounts[track.videoId] = (this.state.playCounts[track.videoId] || 0) + 1;
     this.state.history = [
-      { ...track, playedAt: Date.now() },
+      { ...track, playedAt: now },
       ...this.state.history.filter((t) => t.videoId !== track.videoId),
     ].slice(0, 60);
+    if (!Array.isArray(this.state.playLog)) this.state.playLog = [];
+    this.state.playLog.unshift({
+      videoId: track.videoId,
+      title: track.title || '',
+      artist: track.artist || '',
+      artists: track.artists || [],
+      album: track.album || '',
+      albumId: track.albumId || null,
+      artistId: track.artistId || null,
+      thumbnail: track.thumbnail || '',
+      durationSec: Number(track.durationSec) || 180,
+      playedAt: now,
+    });
+    if (this.state.playLog.length > 5000) {
+      this.state.playLog = this.state.playLog.slice(0, 5000);
+    }
     this.save();
     return this.state;
+  }
+
+  dedupePlaylistTracks(playlistId) {
+    const pl = this.state.playlists.find((p) => p.id === playlistId);
+    if (!pl || !Array.isArray(pl.tracks)) return { removedCount: 0, state: this.state };
+    const unique = [];
+    for (const track of pl.tracks) {
+      if (!track) continue;
+      // Strict match: videoId OR (normalized title AND normalized primary artist) — never title alone
+      if (!unique.some((u) => tracksMatch(u, track))) {
+        unique.push(track);
+      }
+    }
+    const removedCount = pl.tracks.length - unique.length;
+    if (removedCount > 0) {
+      pl.tracks = unique;
+      pl.updatedAt = Date.now();
+      this.save();
+    }
+    return { removedCount, state: this.state };
+  }
+
+  getStats(range = 'month') {
+    const now = Date.now();
+    const cutoff =
+      range === 'week'
+        ? now - 7 * 86400_000
+        : range === 'month'
+        ? now - 30 * 86400_000
+        : range === 'year'
+        ? now - 365 * 86400_000
+        : 0;
+
+    let log = Array.isArray(this.state.playLog) ? this.state.playLog : [];
+    if (log.length === 0 && (this.state.history || []).length > 0) {
+      log = this.state.history.map((t) => ({ ...t, playedAt: t.playedAt || now }));
+    }
+    const filtered = cutoff > 0 ? log.filter((e) => (e?.playedAt || 0) >= cutoff) : log;
+
+    const songMap = new Map();
+    const artistMap = new Map();
+    const albumMap = new Map();
+    const daySet = new Set();
+    const bucketMap = new Map();
+    let totalDurationSec = 0;
+
+    for (const e of filtered) {
+      if (!e?.videoId) continue;
+      const dur = Number(e.durationSec) || 180;
+      totalDurationSec += dur;
+      const ts = Number(e.playedAt) || now;
+      const d = new Date(ts);
+      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      daySet.add(dayKey);
+
+      const bucketKey =
+        range === 'year' || range === 'all'
+          ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+          : dayKey;
+      bucketMap.set(bucketKey, (bucketMap.get(bucketKey) || 0) + 1);
+
+      const sKey = getTrackIdentityKey(e) || e.videoId;
+      const prevS = songMap.get(sKey) || { ...e, plays: 0, totalSec: 0 };
+      prevS.plays += 1;
+      prevS.totalSec += dur;
+      if (!prevS.thumbnail && e.thumbnail) prevS.thumbnail = e.thumbnail;
+      songMap.set(sKey, prevS);
+
+      const artName = (e.artists?.[0]?.name || e.artist || 'Unknown Artist').split(',')[0].trim();
+      const aKey = normalizePrimaryArtist(e) || artName.toLowerCase();
+      const prevA = artistMap.get(aKey) || {
+        name: artName,
+        id: e.artistId || e.artists?.[0]?.id || null,
+        thumbnail: e.thumbnail || '',
+        plays: 0,
+        totalSec: 0,
+      };
+      prevA.plays += 1;
+      prevA.totalSec += dur;
+      artistMap.set(aKey, prevA);
+
+      if (e.album) {
+        const alKey = `${e.album.toLowerCase()}::${aKey}`;
+        const prevAl = albumMap.get(alKey) || {
+          title: e.album,
+          id: e.albumId || null,
+          artist: artName,
+          thumbnail: e.thumbnail || '',
+          plays: 0,
+          totalSec: 0,
+        };
+        prevAl.plays += 1;
+        prevAl.totalSec += dur;
+        albumMap.set(alKey, prevAl);
+      }
+    }
+
+    // Compute current streak (consecutive days up to today/yesterday)
+    let streakDays = 0;
+    for (let offset = 0; offset < 365; offset++) {
+      const d = new Date(now - offset * 86400_000);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (daySet.has(k)) streakDays++;
+      else if (offset > 0) break;
+    }
+
+    // Smart Playlists
+    const knownTracks = [
+      ...(this.state.likedSongs || []),
+      ...(this.state.history || []),
+      ...(this.state.playlists || []).flatMap((p) => p.tracks || []),
+    ];
+    const byVid = new Map();
+    for (const t of knownTracks) {
+      if (t?.videoId && !byVid.has(t.videoId)) byVid.set(t.videoId, t);
+    }
+
+    const mostPlayed = Object.entries(this.state.playCounts || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([vid]) => byVid.get(vid))
+      .filter(Boolean)
+      .slice(0, 30);
+
+    const recentlyLiked = (this.state.likedSongs || []).slice(0, 30);
+
+    const recentVids = new Set((this.state.history || []).slice(0, 15).map((t) => t.videoId));
+    const forgottenFavorites = (this.state.likedSongs || [])
+      .filter((t) => t?.videoId && !recentVids.has(t.videoId))
+      .slice(-30)
+      .reverse();
+
+    return {
+      range,
+      totalPlays: filtered.length,
+      totalDurationSec,
+      uniqueTracks: songMap.size,
+      uniqueArtists: artistMap.size,
+      streakDays,
+      topSongs: [...songMap.values()].sort((a, b) => b.plays - a.plays).slice(0, 15),
+      topArtists: [...artistMap.values()].sort((a, b) => b.plays - a.plays).slice(0, 12),
+      topAlbums: [...albumMap.values()].sort((a, b) => b.plays - a.plays).slice(0, 12),
+      timeline: [...bucketMap.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([label, plays]) => ({ label, plays })),
+      smartPlaylists: [
+        { id: 'smart-most-played', name: 'Most Played', subtitle: 'Your all-time top tracks', tracks: mostPlayed },
+        { id: 'smart-recently-liked', name: 'Recently Liked', subtitle: 'Latest additions to Liked Songs', tracks: recentlyLiked },
+        { id: 'smart-forgotten', name: 'Forgotten Favorites', subtitle: 'Liked songs you haven’t played lately', tracks: forgottenFavorites },
+      ],
+    };
   }
 
   clearHistory() {

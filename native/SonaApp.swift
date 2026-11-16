@@ -1,14 +1,18 @@
 import Cocoa
 import WebKit
+import MediaPlayer
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
+    var statusItem: NSStatusItem?
     var serverProcess: Process?
     var serverPort: Int = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
+        setupStatusBarMiniPlayer()
+        setupRemoteMediaKeys()
         startBackendAndLaunch()
     }
 
@@ -205,6 +209,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
 
     @objc func reloadWebView() {
         webView?.reload()
+    }
+
+    func dispatchMediaKey(_ action: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('mynil-media-key', { detail: '\(action)' }));", completionHandler: nil)
+        }
+    }
+
+    func setupStatusBarMiniPlayer() {
+        let appName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Mynil Music"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "♫"
+        item.button?.toolTip = appName
+        let menu = NSMenu()
+        let playItem = NSMenuItem(title: "Play / Pause", action: #selector(menuPlayPause), keyEquivalent: "")
+        playItem.target = self
+        menu.addItem(playItem)
+        let nextItem = NSMenuItem(title: "Next Track", action: #selector(menuNext), keyEquivalent: "")
+        nextItem.target = self
+        menu.addItem(nextItem)
+        let prevItem = NSMenuItem(title: "Previous Track", action: #selector(menuPrev), keyEquivalent: "")
+        prevItem.target = self
+        menu.addItem(prevItem)
+        menu.addItem(NSMenuItem.separator())
+        let showItem = NSMenuItem(title: "Show \(appName)", action: #selector(menuShowApp), keyEquivalent: "")
+        showItem.target = self
+        menu.addItem(showItem)
+        menu.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        item.menu = menu
+        self.statusItem = item
+    }
+
+    func setupRemoteMediaKeys() {
+        let center = MPRemoteCommandCenter.shared()
+        center.togglePlayPauseCommand.isEnabled = true
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.dispatchMediaKey("playpause")
+            return .success
+        }
+        center.nextTrackCommand.isEnabled = true
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            self?.dispatchMediaKey("next")
+            return .success
+        }
+        center.previousTrackCommand.isEnabled = true
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            self?.dispatchMediaKey("prev")
+            return .success
+        }
+    }
+
+    @objc func menuPlayPause() { dispatchMediaKey("playpause") }
+    @objc func menuNext() { dispatchMediaKey("next") }
+    @objc func menuPrev() { dispatchMediaKey("prev") }
+    @objc func menuShowApp() {
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
     }
 }
 

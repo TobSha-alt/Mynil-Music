@@ -26,12 +26,29 @@ internal sealed class SonaForm : Form
 {
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private const int DWMWA_CAPTION_COLOR = 35;
+    private const int WM_HOTKEY = 0x0312;
+    private const int HOTKEY_PLAY_PAUSE = 1001;
+    private const int HOTKEY_NEXT = 1002;
+    private const int HOTKEY_PREV = 1003;
+    private const int HOTKEY_STOP = 1004;
+    private const uint VK_MEDIA_NEXT_TRACK = 0xB0;
+    private const uint VK_MEDIA_PREV_TRACK = 0xB1;
+    private const uint VK_MEDIA_STOP = 0xB2;
+    private const uint VK_MEDIA_PLAY_PAUSE = 0xB3;
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
     private readonly WebView2 _webView;
+    private readonly NotifyIcon _trayIcon;
     private Process? _serverProcess;
+    private bool _forceExit;
     private bool _isFullScreen;
     private FormBorderStyle _savedBorderStyle;
     private FormWindowState _savedWindowState;
@@ -40,7 +57,8 @@ internal sealed class SonaForm : Form
     public SonaForm()
     {
         var baseDir = AppContext.BaseDirectory ?? "";
-        Text = baseDir.Contains("Mono", StringComparison.OrdinalIgnoreCase) ? "Mynil Mono" : "Mynil Music";
+        var appTitle = baseDir.Contains("Mono", StringComparison.OrdinalIgnoreCase) ? "Mynil Mono" : "Mynil Music";
+        Text = appTitle;
         Width = 1420;
         Height = 900;
         MinimumSize = new Size(1020, 680);
@@ -60,8 +78,89 @@ internal sealed class SonaForm : Form
         };
         Controls.Add(_webView);
 
+        var trayMenu = new ContextMenuStrip();
+        trayMenu.Items.Add("Play / Pause", null, (_, _) => DispatchMediaKey("playpause"));
+        trayMenu.Items.Add("Next Track", null, (_, _) => DispatchMediaKey("next"));
+        trayMenu.Items.Add("Previous Track", null, (_, _) => DispatchMediaKey("prev"));
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add($"Show {appTitle}", null, (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
+        trayMenu.Items.Add("Quit", null, (_, _) => { _forceExit = true; Close(); });
+
+        _trayIcon = new NotifyIcon
+        {
+            Icon = Icon ?? SystemIcons.Application,
+            Text = appTitle,
+            ContextMenuStrip = trayMenu,
+            Visible = true,
+        };
+        _trayIcon.DoubleClick += (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+
         Load += async (_, _) => await StartBackendAndLaunchAsync();
-        FormClosing += (_, _) => StopBackend();
+        FormClosing += (_, e) =>
+        {
+            if (!_forceExit && e.CloseReason == CloseReason.UserClosing && IsMinimizeToTrayEnabled())
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            UnregisterMediaHotKeys();
+            StopBackend();
+        };
+    }
+
+    private void DispatchMediaKey(string action)
+    {
+        try
+        {
+            if (_webView?.CoreWebView2 != null)
+            {
+                _ = _webView.CoreWebView2.ExecuteScriptAsync($"window.dispatchEvent(new CustomEvent('mynil-media-key', {{ detail: '{action}' }}));");
+            }
+        }
+        catch { }
+    }
+
+    private static bool IsMinimizeToTrayEnabled()
+    {
+        try
+        {
+            var libPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sona", "sona-library.json");
+            if (File.Exists(libPath))
+            {
+                var json = File.ReadAllText(libPath);
+                return Regex.IsMatch(json, "\"minimizeToTray\"\\s*:\\s*true");
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private void UnregisterMediaHotKeys()
+    {
+        try
+        {
+            UnregisterHotKey(Handle, HOTKEY_PLAY_PAUSE);
+            UnregisterHotKey(Handle, HOTKEY_NEXT);
+            UnregisterHotKey(Handle, HOTKEY_PREV);
+            UnregisterHotKey(Handle, HOTKEY_STOP);
+        }
+        catch { }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_HOTKEY)
+        {
+            int id = m.WParam.ToInt32();
+            if (id == HOTKEY_PLAY_PAUSE) DispatchMediaKey("playpause");
+            else if (id == HOTKEY_NEXT) DispatchMediaKey("next");
+            else if (id == HOTKEY_PREV) DispatchMediaKey("prev");
+            else if (id == HOTKEY_STOP) DispatchMediaKey("stop");
+        }
+        base.WndProc(ref m);
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -73,6 +172,10 @@ internal sealed class SonaForm : Form
             DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
             int captionColor = 0x0B0707; // BGR for #07070b
             DwmSetWindowAttribute(Handle, DWMWA_CAPTION_COLOR, ref captionColor, sizeof(int));
+            RegisterHotKey(Handle, HOTKEY_PLAY_PAUSE, 0, VK_MEDIA_PLAY_PAUSE);
+            RegisterHotKey(Handle, HOTKEY_NEXT, 0, VK_MEDIA_NEXT_TRACK);
+            RegisterHotKey(Handle, HOTKEY_PREV, 0, VK_MEDIA_PREV_TRACK);
+            RegisterHotKey(Handle, HOTKEY_STOP, 0, VK_MEDIA_STOP);
         }
         catch { }
     }

@@ -15,6 +15,8 @@ import AlbumView from './views/AlbumView';
 import PlaylistView from './views/PlaylistView';
 import LibraryView from './views/LibraryView';
 import SettingsView from './views/SettingsView';
+import StatsView from './views/StatsView';
+import MiniPlayer from './components/MiniPlayer';
 
 function AppShell() {
   const {
@@ -296,6 +298,14 @@ function AppShell() {
                 />
               )}
 
+              {activeRoute.name === 'stats' && (
+                <StatsView
+                  onOpenArtist={openArtist}
+                  onOpenAlbum={openAlbum}
+                  onNavigate={navigate}
+                />
+              )}
+
               {activeRoute.name === 'settings' && <SettingsView />}
             </main>
 
@@ -330,6 +340,8 @@ function AppShell() {
         onStatusChange={setAccountStatus}
         onOpenSettings={() => navigate({ name: 'settings' })}
       />
+
+      <MiniPlayer />
 
       <ToastBanner />
     </div>

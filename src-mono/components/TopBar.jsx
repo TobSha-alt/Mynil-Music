@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Search, X, Sparkles, Play, ArrowUpRight, User, Home, Library, Settings, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X, Sparkles, Play, ArrowUpRight, User, Home, Library, Settings, Maximize2, Minimize2, BarChart3, PictureInPicture2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import ArtistAvatar from './ArtistAvatar';
 import CoverArt from './CoverArt';
@@ -21,7 +21,7 @@ export default function TopBar({
   accountStatus,
   onOpenAccount,
 }) {
-  const { library, playTrack } = usePlayer();
+  const { library, playTrack, updatePref } = usePlayer();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [suggestions, setSuggestions] = useState({ queries: [], items: [] });
@@ -143,6 +143,7 @@ export default function TopBar({
               { id: 'home', label: 'Home', icon: Home },
               { id: 'search', label: 'Search', icon: Search },
               { id: 'library', label: 'Library', icon: Library },
+              { id: 'stats', label: 'Stats', icon: BarChart3 },
               { id: 'settings', label: 'Settings', icon: Settings },
             ].map(({ id, label, icon: Icon }) => {
               const active = activeRoute?.name === id;
@@ -335,6 +336,18 @@ export default function TopBar({
           <span className="hidden sm:inline">
             {accountStatus?.mode === 'account' ? `@${accountStatus.user?.username}` : 'Guest'}
           </span>
+        </button>
+
+        <button
+          onClick={() => updatePref({ miniPlayerEnabled: !library.preferences?.miniPlayerEnabled })}
+          className={`w-8 h-8 rounded-full border flex items-center justify-center transition active:scale-90 ${
+            library.preferences?.miniPlayerEnabled
+              ? 'bg-white text-black border-white'
+              : 'bg-white/[0.06] hover:bg-white/[0.13] border-white/[0.08] text-zinc-200'
+          }`}
+          title={library.preferences?.miniPlayerEnabled ? 'Close Mini-Player' : 'Open Mini-Player'}
+        >
+          <PictureInPicture2 size={14} />
         </button>
 
         <button

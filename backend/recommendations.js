@@ -765,7 +765,117 @@ async function getMoreSongsYouMightLike(libraryState, { excludeIds = new Set(), 
   return shelves;
 }
 
+let sessionMixesCache = null;
+
+async function getSessionMixes(libraryState, { refresh = false } = {}) {
+  if (!refresh && sessionMixesCache) {
+    return sessionMixesCache;
+  }
+
+  const liked = Array.isArray(libraryState?.likedSongs) ? libraryState.likedSongs : [];
+  const history = Array.isArray(libraryState?.history) ? libraryState.history : [];
+  const playlists = Array.isArray(libraryState?.playlists) ? libraryState.playlists : [];
+  const playCounts = libraryState?.playCounts || {};
+
+  const knownTracks = [];
+  const knownIds = new Set();
+  const knownKeys = new Set();
+  for (const t of [...history, ...liked, ...playlists.flatMap((p) => p.tracks || [])]) {
+    if (!t?.videoId || knownIds.has(t.videoId)) continue;
+    knownIds.add(t.videoId);
+    const nt = normalizeSongTitle(t.title);
+    const na = normalizeText(t.artists?.[0]?.name || t.artist?.split(',')[0] || '');
+    if (nt && na) knownKeys.add(`${na}::${nt}`);
+    knownTracks.push(t);
+  }
+
+  // 1. All Your Listened-To Mix (history + top played, shuffled each session)
+  const listenedPool = shuffleInPlace(
+    [...history, ...knownTracks.filter((t) => (playCounts[t.videoId] || 0) > 0)]
+      .filter((t, i, arr) => t?.videoId && arr.findIndex((x) => x.videoId === t.videoId) === i)
+  ).slice(0, 20);
+
+  // Detect favorite genre for niche mix
+  const topGenres = await getSeedGenres(history.slice(0, 6).length ? history.slice(0, 6) : liked.slice(0, 6));
+  const favGenre = topGenres[0] || 'Alternative Rock';
+
+  // 2. Completely New Songs You Might Like + 3. Niche Genre Mix
+  const seedForNew = shuffleInPlace([...history.slice(0, 6), ...liked.slice(0, 6)]).slice(0, 2);
+  const [upNextNew, nicheQueryRes] = await Promise.all([
+    Promise.all(
+      seedForNew.map((s) => ytm.getUpNext(s.videoId, null, { skipSpotifyEnrich: true }).catch(() => ({ tracks: [] })))
+    ),
+    fetchGenrePlaylistTracks(`underrated ${favGenre} indie hidden gems`, 24).catch(() => []),
+  ]);
+
+  const freshNew = [];
+  const freshIds = new Set(knownIds);
+  for (const r of upNextNew) {
+    for (const t of r?.tracks || []) {
+      if (!isCleanSongCandidate(t, freshIds, knownKeys)) continue;
+      freshIds.add(t.videoId);
+      freshNew.push({ ...t, kind: 'song' });
+      if (freshNew.length >= 18) break;
+    }
+    if (freshNew.length >= 18) break;
+  }
+
+  const nicheTracks = [];
+  const nicheUsed = new Set();
+  for (const t of shuffleInPlace([...nicheQueryRes])) {
+    if (!t?.videoId || nicheUsed.has(t.videoId)) continue;
+    if (!isCleanSongCandidate(t, new Set(), new Set())) continue;
+    nicheUsed.add(t.videoId);
+    nicheTracks.push({ ...t, kind: 'song' });
+    if (nicheTracks.length >= 18) break;
+  }
+
+  // Enrich new tracks with Spotify streams
+  const enrichedNew = await spotify.enrichTracksWithSpotifyStreams([...freshNew, ...nicheTracks], '', { timeBudgetMs: 5500 }).catch(() => [...freshNew, ...nicheTracks]);
+  const finalFresh = enrichedNew.slice(0, freshNew.length);
+  const finalNiche = enrichedNew.slice(freshNew.length);
+
+  // 4. Blended Mix (Half listened-to + half fresh discoveries)
+  const blended = [];
+  const maxLen = Math.max(listenedPool.length, finalFresh.length);
+  for (let i = 0; i < maxLen && blended.length < 20; i++) {
+    if (listenedPool[i]) blended.push(listenedPool[i]);
+    if (finalFresh[i] && blended.length < 20) blended.push(finalFresh[i]);
+  }
+
+  const mixes = [
+    listenedPool.length > 0 && {
+      id: 'session-listened',
+      name: 'Your Listening Rotation',
+      subtitle: 'All the songs you’ve been playing, freshly shuffled',
+      tracks: listenedPool,
+    },
+    finalFresh.length > 0 && {
+      id: 'session-new',
+      name: 'Fresh Discoveries',
+      subtitle: 'Completely new tracks tailored to your taste',
+      tracks: finalFresh,
+    },
+    finalNiche.length > 0 && {
+      id: 'session-niche',
+      name: `Niche ${favGenre} Mix`,
+      subtitle: `Deep cuts & underground picks in ${favGenre}`,
+      tracks: finalNiche,
+    },
+    blended.length > 0 && {
+      id: 'session-blended',
+      name: 'Daily Blend',
+      subtitle: 'Your favorites mixed with new songs you might like',
+      tracks: blended,
+    },
+  ].filter(Boolean);
+
+  sessionMixesCache = mixes;
+  return mixes;
+}
+
 module.exports = {
   getBasedOnLastListened,
   getMoreSongsYouMightLike,
+  getSessionMixes,
 };
