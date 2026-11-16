@@ -128,7 +128,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0.027, green: 0.027, blue: 0.043, alpha: 1.0)
         window.appearance = NSAppearance(named: .darkAqua)
-        window.minSize = NSSize(width: 1020, height: 680)
+        window.minSize = NSSize(width: 1140, height: 720)
+        window.contentMinSize = NSSize(width: 1140, height: 720)
         window.delegate = self
         window.center()
 
