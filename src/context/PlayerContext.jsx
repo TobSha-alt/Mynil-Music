@@ -1208,8 +1208,10 @@ export function PlayerProvider({ children }) {
     return lib;
   }, []);
 
+  const streamRetryRef = useRef(0);
   useEffect(() => {
     const onFocus = () => {
+      streamRetryRef.current = 0;
       refreshLibrary().catch(() => {});
     };
     window.addEventListener('focus', onFocus);
@@ -1218,10 +1220,12 @@ export function PlayerProvider({ children }) {
 
   useEffect(() => {
     const hasMissingLikedStreams = (library.likedSongs || []).some((t) => t && !t.spotifyStreams);
-    if (!hasMissingLikedStreams) return;
+    // Bounded retries: songs Spotify can't match must not cause endless polling
+    if (!hasMissingLikedStreams || streamRetryRef.current >= 4) return;
     const timer = setTimeout(() => {
+      streamRetryRef.current += 1;
       refreshLibrary().catch(() => {});
-    }, 3500);
+    }, 4000 * (streamRetryRef.current + 1));
     return () => clearTimeout(timer);
   }, [library.likedSongs, refreshLibrary]);
 

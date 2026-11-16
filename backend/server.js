@@ -43,24 +43,44 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
     req.on('data', (chunk) => {
+      if (settled) return;
       raw += chunk;
       if (raw.length > 2 * 1024 * 1024) {
-        reject(new Error('Body too large'));
+        raw = '';
+        fail(httpError(413, 'Body too large'));
       }
     });
     req.on('end', () => {
-      if (!raw.trim()) return resolve({});
+      if (settled) return;
+      if (!raw.trim()) {
+        settled = true;
+        return resolve({});
+      }
       try {
-        resolve(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        settled = true;
+        resolve(parsed && typeof parsed === 'object' ? parsed : {});
       } catch {
-        reject(new Error('Invalid JSON'));
+        fail(httpError(400, 'Invalid JSON'));
       }
     });
-    req.on('error', reject);
+    req.on('error', fail);
   });
 }
 
@@ -372,6 +392,25 @@ async function handleApi(req, res, urlObj) {
         ...extraShelves,
         ...filteredShelves,
       ];
+
+      // Final pass: every track on every shelf should carry its official Spotify stream count.
+      // Already-resolved tracks come from the 30-day cache; stragglers finish in the background.
+      try {
+        const flat = [];
+        for (const s of shelves) {
+          for (const item of s.items || []) {
+            if ((item?.kind === 'song' || item?.kind === 'video' || item?.videoId) && item.title && !item.spotifyStreams) {
+              flat.push(item);
+            }
+          }
+        }
+        if (flat.length > 0) {
+          const filled = await spotify.enrichTracksWithSpotifyStreams(flat, '', { timeBudgetMs: 7000 });
+          for (let i = 0; i < flat.length; i++) {
+            if (filled[i]?.spotifyStreams) flat[i].spotifyStreams = filled[i].spotifyStreams;
+          }
+        }
+      } catch {}
 
       const firstTracks = [];
       for (const s of shelves) {
@@ -790,7 +829,11 @@ async function handleApi(req, res, urlObj) {
 
     return sendJson(res, 404, { error: 'Unknown endpoint' });
   } catch (err) {
-    return sendJson(res, 500, { error: err?.message || 'Internal server error' });
+    if (res.headersSent) {
+      try { res.end(); } catch {}
+      return;
+    }
+    return sendJson(res, Number(err?.status) || 500, { error: err?.message || 'Internal server error' });
   }
 }
 

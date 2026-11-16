@@ -126,7 +126,7 @@ function normalizeTrackTitle(str) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' and ')
     .replace(
-      /\((feat\.|ft\.|with|remaster|remastered|official|audio|video|music video|lyric|lyrics|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live|anniversary)[^)]*\)/gi,
+      /\((feat\.|ft\.|with|remaster|remastered|official|audio|video|music video|lyric|lyrics|visualizer|single|album|version|edit|radio|explicit|clean|deluxe|bonus|from|live|anniversary)[^)]*\)/gi,
       ''
     )
     .replace(/\[[^\]]*\]/g, '')
@@ -194,8 +194,25 @@ async function getSpotifyAccessToken(forceRefresh = false) {
   return spotifyTokenPromise;
 }
 
+// Global limiter so parallel shelves/pages never flood Spotify (avoids 429s)
+const MAX_SPOTIFY_CONCURRENCY = 10;
+let spotifyActive = 0;
+const spotifyWaiters = [];
+function acquireSpotifySlot() {
+  if (spotifyActive < MAX_SPOTIFY_CONCURRENCY) {
+    spotifyActive++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => spotifyWaiters.push(resolve));
+}
+function releaseSpotifySlot() {
+  const next = spotifyWaiters.shift();
+  if (next) next();
+  else spotifyActive = Math.max(0, spotifyActive - 1);
+}
+
 async function spotifyPathfinder(operationName, variables, sha256Hash, retry = true) {
-  const token = await getSpotifyAccessToken();
+  const token = await getSpotifyAccessToken(!retry);
   if (!token) return null;
   const url =
     'https://api-partner.spotify.com/pathfinder/v1/query?operationName=' +
@@ -204,6 +221,10 @@ async function spotifyPathfinder(operationName, variables, sha256Hash, retry = t
     encodeURIComponent(JSON.stringify(variables)) +
     '&extensions=' +
     encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash } }));
+
+  let status = 0;
+  let json = null;
+  await acquireSpotifySlot();
   try {
     const res = await fetch(url, {
       headers: {
@@ -213,18 +234,40 @@ async function spotifyPathfinder(operationName, variables, sha256Hash, retry = t
       },
       signal: AbortSignal.timeout(4500),
     });
-    if (res.status === 401 && retry) {
-      await getSpotifyAccessToken(true);
-      return spotifyPathfinder(operationName, variables, sha256Hash, false);
-    }
-    if (!res.ok) return null;
-    return await res.json();
+    status = res.status;
+    if (res.ok) json = await res.json();
   } catch {
-    return null;
+    json = null;
+  } finally {
+    releaseSpotifySlot();
   }
+  if (status === 401 && retry) {
+    return spotifyPathfinder(operationName, variables, sha256Hash, false);
+  }
+  return json;
 }
 
-async function fetchSpotifyTrackPlaycount(title, artist) {
+const inflightPlaycounts = new Map();
+function fetchSpotifyTrackPlaycount(title, artist) {
+  const key = getTrackCacheKey(title, artist);
+  if (!key) return Promise.resolve(0);
+  if (inflightPlaycounts.has(key)) return inflightPlaycounts.get(key);
+  const p = (async () => {
+    const direct = await fetchSpotifyTrackPlaycountUncached(title, artist);
+    if (direct > 0) return direct;
+    // YouTube-style titles: "Artist & Guest - Song (Official Video)" -> search "Song" by "Artist"
+    const m = String(title || '').match(/^(.{2,80}?)\s[-–—]\s(.{2,})$/);
+    if (m) {
+      const leftArtist = m[1].split(/,|&|\bfeat\.?\b|\bft\.?\b|\bx\b/i)[0].trim();
+      if (leftArtist) return fetchSpotifyTrackPlaycountUncached(m[2], leftArtist);
+    }
+    return 0;
+  })().finally(() => inflightPlaycounts.delete(key));
+  inflightPlaycounts.set(key, p);
+  return p;
+}
+
+async function fetchSpotifyTrackPlaycountUncached(title, artist) {
   const cleanTitle = normalizeTrackTitle(title);
   if (!cleanTitle) return 0;
   const primaryArtist = String(artist || '')
@@ -283,7 +326,16 @@ async function fetchSpotifyTrackPlaycount(title, artist) {
       }
     }
   }
-  if (!chosenUri) chosenUri = trackItems[0]?.item?.data?.uri || null;
+  if (!chosenUri) {
+    // Last resort: only accept a result whose title matches exactly (never a different song)
+    for (const entry of trackItems) {
+      const d = entry?.item?.data;
+      if (d?.uri?.startsWith('spotify:track:') && normalizeTrackTitle(d.name || '') === cleanTitle) {
+        chosenUri = d.uri;
+        break;
+      }
+    }
+  }
   if (!chosenUri) return 0;
 
   const trackData = await spotifyPathfinder('getTrack', { uri: chosenUri }, HASH_GET_TRACK);
@@ -782,7 +834,11 @@ function recordCachedSpotifyStreams(track, fallbackArtistName, streams) {
   scheduleSaveTrackStreamsCache();
 }
 
-async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = '', { forceRefresh = false } = {}) {
+async function enrichTracksWithSpotifyStreams(
+  tracks = [],
+  fallbackArtistName = '',
+  { forceRefresh = false, timeBudgetMs = 6000 } = {}
+) {
   if (!Array.isArray(tracks) || tracks.length === 0) return tracks;
 
   // 1. Resolve from persistent 30-day Spotify cache first
@@ -814,7 +870,7 @@ async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = 
 
   let cursor = 0;
   const concurrency = Math.min(8, missingIndices.length);
-  await Promise.all(
+  const work = Promise.all(
     Array.from({ length: concurrency }, async () => {
       while (cursor < missingIndices.length) {
         const idx = missingIndices[cursor++];
@@ -832,7 +888,22 @@ async function enrichTracksWithSpotifyStreams(tracks = [], fallbackArtistName = 
     })
   );
 
-  return results;
+  // Pages must stay responsive: return what's resolved within the budget and let the remaining
+  // lookups finish in the background so they're cached for the next load. Monthly rescans
+  // (forceRefresh) wait for everything.
+  if (forceRefresh || !timeBudgetMs) {
+    await work;
+    return results;
+  }
+  let timer;
+  await Promise.race([
+    work,
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, timeBudgetMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return results.slice();
 }
 
 // Kick off index + token load immediately on require
