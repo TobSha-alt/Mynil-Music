@@ -59,10 +59,9 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
     const smoothBars = new Float32Array(barCount);
     const bandFloor = new Float32Array(barCount);
     for (let i = 0; i < barCount; i++) {
-      const c = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.4;
-      smoothBars[i] = (0.08 + 0.06 * Math.sin(i * 0.55)) * c;
-      peaks[i] = smoothBars[i];
-      bandFloor[i] = 0.15;
+      smoothBars[i] = 0;
+      peaks[i] = 0;
+      bandFloor[i] = 0;
     }
     let bins = null;
     let timeBins = null;
@@ -204,9 +203,9 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
       };
       const shapeGain = (val) => {
         if (typeof val === 'object' && val !== null) {
-          if ( val.raw < 0.02 && rms < 0.005 ) return 0.02;
+          if (val.raw < 0.02 && rms < 0.005) return 0;
           const shaped = Math.pow(Math.max(0, val.raw), 1.55) * 0.55 + val.dynamicDelta * (1.35 * agg) + val.waveSample * (0.35 * agg);
-          return Math.min(1, Math.max(0.02, shaped * val.envGate * (0.55 + agg * 0.45)));
+          return Math.min(1, Math.max(0, shaped * val.envGate * (0.55 + agg * 0.45)));
         }
         return Math.min(1, Math.pow(Math.max(0, val), 1.2) * (0.45 + agg * 0.55));
       };
@@ -226,24 +225,11 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
       if (styleMode === 'wave') {
         for (let i = 0; i < barCount; i++) {
           if (playing) {
-            let target;
-            if (hasSignal) {
-              target = sampleBin(i);
-            } else {
-              const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
-              target =
-                (0.35 +
-                  0.24 * Math.sin(phase * 1.4 + i * 0.42) +
-                  0.16 * Math.cos(phase * 2.1 - i * 0.28)) *
-                centerFactor;
-            }
-            if (panOn) {
+            let target = hasSignal ? shapeGain(sampleBin(i)) : 0;
+            if (panOn && target > 0) {
               const dist = Math.abs(i / Math.max(1, barCount - 1) - panCenter);
               const spotlight = Math.max(0.35, 1.28 - dist * (0.9 + ampNorm * 0.6));
-              target = shapeGain(target);
               target = Math.min(1, target * spotlight);
-            } else {
-              target = shapeGain(target);
             }
             const sf = target > smoothBars[i] ? attackFactor : releaseFactor;
             smoothBars[i] += (target - smoothBars[i]) * sf;
@@ -284,20 +270,9 @@ export default function Visualizer({ height = 56, barCount = 42, className = '' 
 
       for (let i = 0; i < barCount; i++) {
         if (playing) {
-          let target;
-          if (hasSignal) {
-            target = sampleBin(i);
-          } else {
-            const centerFactor = 1 - Math.abs((i - (barCount - 1) / 2) / (barCount / 2)) * 0.35;
-            target =
-              (0.35 +
-                0.24 * Math.sin(phase * 1.4 + i * 0.42) +
-                0.16 * Math.cos(phase * 2.1 - i * 0.28)) *
-              centerFactor;
-          }
-          target = shapeGain(target);
+          let target = hasSignal ? shapeGain(sampleBin(i)) : 0;
 
-          if (panOn) {
+          if (panOn && target > 0) {
             const dist = Math.abs(i / Math.max(1, barCount - 1) - panCenter);
             const spotlight = Math.max(0.35, 1.28 - dist * (0.9 + ampNorm * 0.6));
             target = Math.min(1, target * spotlight);
