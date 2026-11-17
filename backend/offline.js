@@ -51,6 +51,62 @@ class OfflineManager {
     return path.join(OFFLINE_BASE, `${videoId}.sona`);
   }
 
+  getLrcPath(videoId) {
+    return path.join(OFFLINE_BASE, `${videoId}.lrc`);
+  }
+
+  getLyricsMetaPath(videoId) {
+    return path.join(OFFLINE_BASE, `${videoId}.lyrics.json`);
+  }
+
+  saveOfflineLyrics(videoId, res) {
+    if (!videoId || !res) return;
+    try {
+      fs.mkdirSync(OFFLINE_BASE, { recursive: true });
+      if (res.synced && Array.isArray(res.lines) && res.lines.length > 0) {
+        const lrcText = res.lines
+          .map((l) => {
+            const sec = Math.max(0, Number(l.time) || 0);
+            const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+            const ss = (sec % 60).toFixed(2).padStart(5, '0');
+            return `[${mm}:${ss}] ${l.isInstrumental ? '♪' : (l.text || '')}`;
+          })
+          .join('\n');
+        fs.writeFileSync(this.getLrcPath(videoId), lrcText, 'utf8');
+      }
+      if (res.lyrics || (Array.isArray(res.lines) && res.lines.length > 0)) {
+        fs.writeFileSync(
+          this.getLyricsMetaPath(videoId),
+          JSON.stringify({
+            synced: Boolean(res.synced),
+            lines: res.lines || [],
+            lyrics: res.lyrics || null,
+            source: res.source || 'Offline Cache',
+          }),
+          'utf8'
+        );
+      }
+    } catch {}
+  }
+
+  getOfflineLyrics(videoId) {
+    if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) return null;
+    try {
+      const lrcPath = this.getLrcPath(videoId);
+      if (fs.existsSync(lrcPath)) {
+        const rawLrc = fs.readFileSync(lrcPath, 'utf8');
+        if (rawLrc.trim()) {
+          return { rawLrc, fromLrcFile: true };
+        }
+      }
+      const metaPath = this.getLyricsMetaPath(videoId);
+      if (fs.existsSync(metaPath)) {
+        return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      }
+    } catch {}
+    return null;
+  }
+
   getOfflineFile(videoId) {
     if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) return null;
     if (!this.tracks[videoId]) return null;
@@ -101,6 +157,22 @@ class OfflineManager {
         downloadedAt: Date.now(),
       };
       this.save();
+
+      // Also fetch & save synced .lrc lyrics alongside the offline audio
+      try {
+        const lyricsService = require('./lyrics');
+        const lyr = await lyricsService.getLyrics({
+          videoId,
+          title: track.title || '',
+          artist: track.artist || track.artists?.[0]?.name || '',
+          album: track.album || '',
+          duration: Number(track.durationSec) || 0,
+        });
+        if (lyr && (lyr.synced || lyr.lyrics)) {
+          this.saveOfflineLyrics(videoId, lyr);
+        }
+      } catch {}
+
       return true;
     } finally {
       this.downloadingIds.delete(videoId);
@@ -126,11 +198,12 @@ class OfflineManager {
     for (const vid of ids) {
       if (!vid) continue;
       delete this.tracks[vid];
-      const p = this.getFilePath(vid);
-      if (fs.existsSync(p)) {
-        try {
-          fs.unlinkSync(p);
-        } catch {}
+      for (const p of [this.getFilePath(vid), this.getLrcPath(vid), this.getLyricsMetaPath(vid)]) {
+        if (fs.existsSync(p)) {
+          try {
+            fs.unlinkSync(p);
+          } catch {}
+        }
       }
     }
     this.save();
@@ -139,11 +212,12 @@ class OfflineManager {
 
   clearAll() {
     for (const vid of Object.keys(this.tracks)) {
-      const p = this.getFilePath(vid);
-      if (fs.existsSync(p)) {
-        try {
-          fs.unlinkSync(p);
-        } catch {}
+      for (const p of [this.getFilePath(vid), this.getLrcPath(vid), this.getLyricsMetaPath(vid)]) {
+        if (fs.existsSync(p)) {
+          try {
+            fs.unlinkSync(p);
+          } catch {}
+        }
       }
     }
     this.tracks = {};

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Shuffle, Heart, Pencil, Trash2, CopyPlus, Search, ListMusic, Download, CheckCircle2 } from 'lucide-react';
+import { Play, Shuffle, Heart, Pencil, Trash2, CopyPlus, Search, ListMusic, Download, CheckCircle2, FileDown } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import TrackRow from '../components/TrackRow';
 import PlaylistModal from '../components/PlaylistModal';
@@ -32,6 +32,7 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(mode === 'ytm');
   const [filterText, setFilterText] = useState('');
   const [editOpen, setEditOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     if (mode === 'liked' || mode === 'custom') {
@@ -148,6 +149,57 @@ export default function PlaylistView({
     if (!customPl) return;
     await deletePlaylist(customPl.id);
     if (onDeleted) onDeleted();
+  };
+
+  const triggerDownloadFile = (filename, content, mime = 'text/plain;charset=utf-8') => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleExport = (format) => {
+    setExportOpen(false);
+    if (!tracks.length) return;
+    const safeName = (title || 'playlist').replace(/[\\/:*?"<>|]/g, '-').trim() || 'playlist';
+    if (format === 'm3u') {
+      const lines = ['#EXTM3U', `#PLAYLIST:${title}`];
+      for (const t of tracks) {
+        const sec = Math.round(Number(t.durationSec) || 0);
+        lines.push(`#EXTINF:${sec},${t.artist || 'Unknown'} - ${t.title || 'Track'}`);
+        lines.push(`https://music.youtube.com/watch?v=${t.videoId}`);
+      }
+      triggerDownloadFile(`${safeName}.m3u`, lines.join('\n'), 'audio/x-mpegurl');
+      showToast?.(`Exported "${safeName}.m3u"`);
+    } else if (format === 'csv') {
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const rows = ['Title,Artist,Album,Duration,Spotify Streams,URL'];
+      for (const t of tracks) {
+        rows.push(
+          [
+            esc(t.title),
+            esc(t.artist),
+            esc(t.album || ''),
+            esc(t.duration || ''),
+            esc(t.spotifyStreams || ''),
+            esc(`https://music.youtube.com/watch?v=${t.videoId}`),
+          ].join(',')
+        );
+      }
+      triggerDownloadFile(`${safeName}.csv`, rows.join('\n'), 'text/csv;charset=utf-8');
+      showToast?.(`Exported "${safeName}.csv"`);
+    } else if (format === 'links') {
+      const text = [
+        `${title} (${tracks.length} tracks)`,
+        ...tracks.map((t, i) => `${i + 1}. ${t.artist || 'Unknown'} - ${t.title || 'Track'} — https://music.youtube.com/watch?v=${t.videoId}`),
+      ].join('\n');
+      navigator.clipboard?.writeText(text).then(() => showToast?.(`Copied ${tracks.length} track links to clipboard`));
+    }
   };
 
   const coverTracks = tracks.slice(0, 4);
@@ -276,6 +328,40 @@ export default function PlaylistView({
                   )}
                   {anyDownloading ? 'Downloading…' : allDownloaded ? 'Downloaded' : 'Download'}
                 </button>
+              )}
+
+              {tracks.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setExportOpen((o) => !o)}
+                    className="px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-1.5 transition"
+                    title="Export playlist as .m3u, .csv, or shareable links"
+                  >
+                    <FileDown size={14} /> Export
+                  </button>
+                  {exportOpen && (
+                    <div className="absolute left-0 top-full mt-2 w-52 rounded-xl bg-zinc-900 border border-white/15 shadow-2xl p-1.5 z-40">
+                      <button
+                        onClick={() => handleExport('m3u')}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-zinc-200 hover:bg-white/10 transition"
+                      >
+                        Download .m3u Playlist
+                      </button>
+                      <button
+                        onClick={() => handleExport('csv')}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-zinc-200 hover:bg-white/10 transition"
+                      >
+                        Download .csv Spreadsheet
+                      </button>
+                      <button
+                        onClick={() => handleExport('links')}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-zinc-200 hover:bg-white/10 transition"
+                      >
+                        Copy Shareable Track List
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

@@ -414,6 +414,34 @@ async function getLyrics({ videoId = '', title = '', artist = '', album = '', du
     }
   }
 
+  // Fallback to locally saved offline .lrc / lyrics cache when offline or network failed
+  if (!result.synced && !result.lyrics && videoId) {
+    try {
+      const offline = require('./offline');
+      const offLyr = offline.getOfflineLyrics(videoId);
+      if (offLyr?.fromLrcFile && offLyr.rawLrc) {
+        const parsed = parseLrc(offLyr.rawLrc);
+        if (parsed.length > 0) {
+          result = {
+            synced: true,
+            lines: parsed,
+            lyrics: parsed.filter((l) => !l.isInstrumental).map((l) => l.text).join('\n'),
+            source: 'Offline (.lrc)',
+            matchedDuration: 0,
+          };
+        }
+      } else if (offLyr?.lyrics || offLyr?.lines?.length) {
+        result = {
+          synced: Boolean(offLyr.synced),
+          lines: offLyr.lines || [],
+          lyrics: offLyr.lyrics || null,
+          source: offLyr.source || 'Offline Cache',
+          matchedDuration: 0,
+        };
+      }
+    } catch {}
+  }
+
   if (cacheKey) {
     if (lyricsCache.size >= MAX_CACHE) {
       const oldestKey = lyricsCache.keys().next().value;
