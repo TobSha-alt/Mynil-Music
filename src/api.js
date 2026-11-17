@@ -71,6 +71,7 @@ if (!window.sona) {
     dedupePlaylistTracks: (playlistId) => jsonPost('/api/library/playlist/dedupe-tracks', { playlistId }),
     getStats: (range = 'month') => jsonGet(`/api/stats?range=${encodeURIComponent(range)}`),
     getSessionMixes: (refresh = false) => jsonGet(`/api/mixes${refresh ? '?refresh=1' : ''}`),
+    getDiscordStatus: () => jsonGet('/api/discord/status'),
     updateDiscordPresence: (payload) => jsonPost('/api/discord/presence', payload),
     updatePlaylist: (id, patch) => jsonPost('/api/library/playlist/update', { id, patch }),
     deletePlaylist: (id) => jsonPost('/api/library/playlist/delete', { id }),

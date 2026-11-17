@@ -704,14 +704,26 @@ async function handleApi(req, res, urlObj) {
       return sendJson(res, 200, { mixes });
     }
 
+    if (pathname === '/api/discord/status' && req.method === 'GET') {
+      const prefs = store.getAll().preferences || {};
+      if (prefs.discordRpcEnabled !== false && prefs.discordClientId) {
+        await discordRpc.ensureConnected(prefs.discordClientId).catch(() => {});
+      }
+      return sendJson(res, 200, discordRpc.getStatus());
+    }
+
     if (pathname === '/api/discord/presence' && req.method === 'POST') {
       const body = await readJsonBody(req);
-      if (body?.clear || store.getAll().preferences?.discordRpcEnabled === false) {
+      const prefs = store.getAll().preferences || {};
+      if (body?.clear || prefs.discordRpcEnabled === false) {
         await discordRpc.clearPresence();
-        return sendJson(res, 200, { ok: true, active: false });
+        return sendJson(res, 200, { ok: true, active: false, ...discordRpc.getStatus() });
       }
-      const ok = await discordRpc.updatePresence(body || {});
-      return sendJson(res, 200, { ok: true, active: ok });
+      const ok = await discordRpc.updatePresence({
+        ...(body || {}),
+        clientId: body?.clientId || prefs.discordClientId || '',
+      });
+      return sendJson(res, 200, { ok: true, active: ok, ...discordRpc.getStatus() });
     }
 
     if (pathname === '/api/library/playlist/add' && req.method === 'POST') {

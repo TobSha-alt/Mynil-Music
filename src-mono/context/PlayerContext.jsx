@@ -326,7 +326,7 @@ export function PlayerProvider({ children }) {
         isPlaying,
       })
       .catch(() => {});
-  }, [currentTrack?.videoId, isPlaying, duration, library.preferences?.discordRpcEnabled]);
+  }, [currentTrack?.videoId, isPlaying, duration, library.preferences?.discordRpcEnabled, library.preferences?.discordClientId]);
 
   // Fetch synced/plain lyrics whenever currentTrack or newly-resolved duration updates
   const lyricsFetchedKeyRef = useRef('');

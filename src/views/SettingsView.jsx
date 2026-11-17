@@ -1294,6 +1294,33 @@ export default function SettingsView() {
             checked={prefs.discordRpcEnabled !== false}
             onChange={(v) => updatePref({ discordRpcEnabled: v })}
           />
+          {prefs.discordRpcEnabled !== false && (
+            <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-zinc-300">Discord Application ID</span>
+                <a
+                  href="https://discord.com/developers/applications"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-emerald-400 hover:underline"
+                >
+                  Create App on Discord Developer Portal ↗
+                </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={prefs.discordClientId || ''}
+                  onChange={(e) => updatePref({ discordClientId: e.target.value.trim() })}
+                  placeholder="Paste your Discord Application ID (e.g. 1234567890123456789)"
+                  className="flex-1 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-xs text-white placeholder-zinc-500 outline-none focus:border-emerald-400/60 font-mono"
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Create an app named <strong className="text-zinc-200">Mynil Music</strong> at Discord Developer Portal, copy its <strong className="text-zinc-200">Application ID</strong>, and paste it here (no bot needed).
+              </p>
+            </div>
+          )}
           <ToggleRow
             title="Minimize to System Tray"
             description="Keep playback running in the tray when closing or minimizing on Windows"
