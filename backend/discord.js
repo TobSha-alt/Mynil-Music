@@ -2,7 +2,7 @@ const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
 
-const DEFAULT_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
+const DEFAULT_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '1572346742488432710';
 
 function getIpcPaths() {
   if (process.platform === 'win32') {

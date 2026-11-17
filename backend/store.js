@@ -87,7 +87,7 @@ const DEFAULT_STATE = {
     gaplessEnabled: true,
     miniPlayerEnabled: false,
     discordRpcEnabled: true,
-    discordClientId: '',
+    discordClientId: '1572346742488432710',
     minimizeToTray: false,
     theaterLayout: 'split',
     theaterLyricsBox: 'glass',
