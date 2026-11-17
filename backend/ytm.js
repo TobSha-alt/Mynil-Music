@@ -629,6 +629,9 @@ async function getArtist(browseId) {
   const relatedArtists = [];
   const playlists = [];
 
+  let albumsMore = null;
+  let singlesMore = null;
+
   for (const sec of sections) {
     if (sec.musicShelfRenderer) {
       const shelf = sec.musicShelfRenderer;
@@ -642,7 +645,12 @@ async function getArtist(browseId) {
       }
     } else if (sec.musicCarouselShelfRenderer) {
       const carousel = sec.musicCarouselShelfRenderer;
-      const title = textFromRuns(carousel.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs).toLowerCase();
+      const headerRenderer = carousel.header?.musicCarouselShelfBasicHeaderRenderer;
+      const title = textFromRuns(headerRenderer?.title?.runs).toLowerCase();
+      const moreEp = headerRenderer?.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint || null;
+      if (title.includes('album') && !title.includes('single') && moreEp?.browseId) albumsMore = moreEp;
+      else if (title.includes('single') && moreEp?.browseId) singlesMore = moreEp;
+
       for (const c of carousel.contents || []) {
         const item = c.musicTwoRowItemRenderer
           ? parseTwoRowItem(c.musicTwoRowItemRenderer)
@@ -657,11 +665,53 @@ async function getArtist(browseId) {
     }
   }
 
-  // Fetch Spotify artist bundle + full Top Songs playlist (for exact track durations!) in parallel
-  const [spBundle, topPlaylist] = await Promise.all([
+  const fetchDiscographyGrid = async (ep) => {
+    if (!ep?.browseId) return [];
+    try {
+      const d = await ytmPost('browse', { browseId: ep.browseId, ...(ep.params ? { params: ep.params } : {}) });
+      const secs =
+        d?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer
+          ?.contents || [];
+      const out = [];
+      for (const s of secs) {
+        const gridItems = s.gridRenderer?.items || s.musicGridRenderer?.items || [];
+        for (const gi of gridItems) {
+          const parsed = gi.musicTwoRowItemRenderer ? parseTwoRowItem(gi.musicTwoRowItemRenderer) : null;
+          if (parsed) out.push(parsed);
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  };
+
+  // Fetch Spotify artist bundle + full Top Songs + full Albums/Singles discographies in parallel
+  const [spBundle, topPlaylist, fullAlbums, fullSingles] = await Promise.all([
     spotify.getArtistSpotifyBundle(name).catch(() => null),
     topSongsBrowseId ? getPlaylist(topSongsBrowseId, { skipSpotifyEnrich: true }).catch(() => null) : Promise.resolve(null),
+    fetchDiscographyGrid(albumsMore),
+    fetchDiscographyGrid(singlesMore),
   ]);
+
+  if (fullAlbums.length > albums.length) {
+    const seen = new Set(albums.map((a) => a.id));
+    for (const a of fullAlbums) {
+      if (a?.id && !seen.has(a.id)) {
+        seen.add(a.id);
+        albums.push(a);
+      }
+    }
+  }
+  if (fullSingles.length > singles.length) {
+    const seen = new Set(singles.map((s) => s.id));
+    for (const s of fullSingles) {
+      if (s?.id && !seen.has(s.id)) {
+        seen.add(s.id);
+        singles.push(s);
+      }
+    }
+  }
 
   // Merge exact durations from topPlaylist into topSongs (and expand to top 10!)
   const durationByVid = new Map();
