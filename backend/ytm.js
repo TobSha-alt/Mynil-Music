@@ -124,6 +124,20 @@ function extractArtistsAndMeta(runs) {
   };
 }
 
+function isNonMusicContent({ pageType = '', browseId = '', videoType = '', rawSub = '' } = {}) {
+  const pt = String(pageType || '').toUpperCase();
+  const vt = String(videoType || '').toUpperCase();
+  const bid = String(browseId || '');
+  const sub = String(rawSub || '').trim();
+  if (pt.includes('PODCAST') || pt.includes('NON_MUSIC') || pt.includes('AUDIOBOOK') || pt.includes('EPISODE')) {
+    return true;
+  }
+  if (bid.startsWith('MPSP') || bid.startsWith('MPED')) return true;
+  if (vt.includes('PODCAST') || vt.includes('AUDIO_BOOK') || vt.includes('NON_MUSIC')) return true;
+  if (/^(Episode|Podcast|Audiobook)\b/i.test(sub)) return true;
+  return false;
+}
+
 function parseResponsiveItem(renderer, forcedType = null) {
   if (!renderer) return null;
   const flexCols = renderer.flexColumns || [];
@@ -155,6 +169,10 @@ function parseResponsiveItem(renderer, forcedType = null) {
   const meta = extractArtistsAndMeta(allMetaRuns);
   const rawSub = textFromRuns(col1Runs).trim();
   const thumb = pickBestThumb(renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails, 544);
+  const videoType =
+    watchEp?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType || '';
+
+  if (isNonMusicContent({ pageType, browseId, videoType, rawSub })) return null;
 
   let type = forcedType;
   if (!type) {
@@ -162,8 +180,6 @@ function parseResponsiveItem(renderer, forcedType = null) {
     else if (pageType === 'MUSIC_PAGE_TYPE_ALBUM' || browseId?.startsWith('MPRE')) type = 'album';
     else if (pageType === 'MUSIC_PAGE_TYPE_PLAYLIST' || browseId?.startsWith('VL')) type = 'playlist';
     else if (videoId) {
-      const videoType =
-        watchEp?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType || '';
       type = videoType === 'MUSIC_VIDEO_TYPE_OMV' || videoType === 'MUSIC_VIDEO_TYPE_UGC' || /^Video\b/i.test(rawSub)
         ? 'video'
         : 'song';
@@ -245,6 +261,10 @@ function parseTwoRowItem(renderer) {
     renderer.thumbnailOverlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
       ?.playNavigationEndpoint?.watchEndpoint;
   const videoId = watchEp?.videoId || null;
+  const videoType =
+    watchEp?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType || '';
+
+  if (isNonMusicContent({ pageType, browseId, videoType, rawSub })) return null;
 
   if (pageType === 'MUSIC_PAGE_TYPE_ARTIST' || browseId?.startsWith('UC')) {
     return {
@@ -410,8 +430,14 @@ async function search(query, filter = 'all') {
         card.thumbnailOverlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
           ?.playNavigationEndpoint?.watchEndpoint;
       const browseId = navEp?.browseEndpoint?.browseId || null;
+      const pageType =
+        navEp?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType || '';
+      const videoType =
+        watchEp?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType || '';
 
-      if (browseId?.startsWith('UC')) {
+      if (isNonMusicContent({ pageType, browseId, videoType, rawSub })) {
+        // Skip podcast/episode/audiobook top results
+      } else if (browseId?.startsWith('UC')) {
         topResult = {
           kind: 'artist',
           id: browseId,
@@ -461,6 +487,9 @@ async function search(query, filter = 'all') {
     const shelf = sec.musicShelfRenderer;
     if (!shelf) continue;
     const shelfTitle = textFromRuns(shelf.title?.runs).toLowerCase();
+    if (shelfTitle.includes('episode') || shelfTitle.includes('podcast') || shelfTitle.includes('audiobook')) {
+      continue;
+    }
     const forced =
       shelfTitle.includes('song')
         ? 'song'
@@ -888,6 +917,11 @@ async function getUpNext(videoId, playlistId = null, { skipSpotifyEnrich = false
   for (const entry of queueContents) {
     const item = entry.playlistPanelVideoRenderer;
     if (!item || !item.videoId) continue;
+    const videoType =
+      item.navigationEndpoint?.watchEndpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig
+        ?.musicVideoType || '';
+    const rawSub = textFromRuns(item.longBylineText?.runs || item.shortBylineText?.runs || []);
+    if (isNonMusicContent({ videoType, rawSub })) continue;
     const title = textFromRuns(item.title?.runs);
     const meta = extractArtistsAndMeta(item.longBylineText?.runs || item.shortBylineText?.runs || []);
     const dur = textFromRuns(item.lengthText?.runs);
