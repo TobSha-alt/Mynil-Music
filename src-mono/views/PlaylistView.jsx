@@ -33,6 +33,7 @@ export default function PlaylistView({
   const [filterText, setFilterText] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (mode === 'liked' || mode === 'custom') {
@@ -147,6 +148,7 @@ export default function PlaylistView({
 
   const handleDelete = async () => {
     if (!customPl) return;
+    setDeleteConfirmOpen(false);
     await deletePlaylist(customPl.id);
     if (onDeleted) onDeleted();
   };
@@ -291,7 +293,7 @@ export default function PlaylistView({
                     </button>
                   )}
                   <button
-                    onClick={handleDelete}
+                    onClick={() => setDeleteConfirmOpen(true)}
                     className="px-4 py-2.5 rounded-full bg-white/15 hover:bg-white/25 text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition"
                   >
                     <Trash2 size={13} /> Delete
@@ -416,7 +418,44 @@ export default function PlaylistView({
       </div>
 
       {mode === 'custom' && (
-        <PlaylistModal open={editOpen} onClose={() => setEditOpen(false)} editing={customPl} />
+        <>
+          <PlaylistModal open={editOpen} onClose={() => setEditOpen(false)} editing={customPl} />
+          {deleteConfirmOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+              onClick={() => setDeleteConfirmOpen(false)}
+            >
+              <div
+                className="w-full max-w-sm rounded-2xl border border-white/15 bg-zinc-950/95 shadow-2xl p-6 space-y-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-white">Delete playlist?</h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Are you sure you want to delete <span className="text-white font-semibold">"{title}"</span>
+                    {tracks.length > 0 ? ` (${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'})` : ''}? This cannot be undone.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-zinc-200 text-xs font-bold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black text-xs font-bold transition"
+                  >
+                    Delete Playlist
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
