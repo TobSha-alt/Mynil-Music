@@ -171,7 +171,8 @@ async function handleStreamProxy(req, res, videoId, mode) {
   const pipeTarget = async (attempt = 0) => {
     let info;
     try {
-      info = await resolver.resolve(videoId, { forceRefresh: attempt > 0 });
+      const force = attempt > 0 || req.url.includes('retry=1');
+      info = await resolver.resolve(videoId, { forceRefresh: force });
     } catch (err) {
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'text/plain' });
@@ -270,7 +271,6 @@ async function handleStreamProxy(req, res, videoId, mode) {
       }
     });
 
-    req.on('close', () => upstreamReq.destroy());
     upstreamReq.end();
   };
 

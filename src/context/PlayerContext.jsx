@@ -537,12 +537,23 @@ export function PlayerProvider({ children }) {
 
       audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio`;
       audio.playbackRate = playbackRate;
-      audio.load();
-      audio.play().catch((err) => {
-        if (err?.name !== 'AbortError') {
-          setErrorMsg('Stream interrupted — retrying...');
-        }
-      });
+      const playWithRetry = (attempt = 0) => {
+        audio.play().catch((err) => {
+          if (err?.name === 'AbortError') return;
+          if (attempt < 1 && currentTrackRef.current?.videoId === track.videoId) {
+            setErrorMsg('Stream interrupted — retrying...');
+            setTimeout(() => {
+              if (currentTrackRef.current?.videoId !== track.videoId) return;
+              audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio&retry=1`;
+              audio.playbackRate = playbackRate;
+              playWithRetry(attempt + 1);
+            }, 900);
+          } else {
+            setErrorMsg('Could not play stream. Click retry or skip.');
+          }
+        });
+      };
+      playWithRetry(0);
 
       if (desiredMode === 'video' && videoRef.current) {
         const v = videoRef.current;
@@ -856,6 +867,7 @@ export function PlayerProvider({ children }) {
     };
     const onCanPlay = () => {
       setIsBuffering(false);
+      setErrorMsg('');
       if (pendingSeekRef.current != null) {
         const target = pendingSeekRef.current;
         pendingSeekRef.current = null;
@@ -875,6 +887,7 @@ export function PlayerProvider({ children }) {
     const onPlaying = () => {
       videoBufferingPauseRef.current = false;
       setIsBuffering(false);
+      setErrorMsg('');
       setIsPlaying(true);
       const v = videoRef.current;
       if (mediaMode === 'video' && v?.src && v.paused && !v.seeking) {
