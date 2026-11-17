@@ -7,6 +7,7 @@ import RightDrawer from './components/RightDrawer';
 import TheaterModal from './components/TheaterModal';
 import PlaylistModal from './components/PlaylistModal';
 import AccountModal from './components/AccountModal';
+import DownloadModal from './components/DownloadModal';
 import ToastBanner from './components/ToastBanner';
 import HomeView from './views/HomeView';
 import SearchView from './views/SearchView';
@@ -338,6 +339,8 @@ function AppShell() {
         onStatusChange={setAccountStatus}
         onOpenSettings={() => navigate({ name: 'settings' })}
       />
+
+      <DownloadModal />
 
       <MiniPlayer />
 

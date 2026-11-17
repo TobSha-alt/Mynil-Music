@@ -83,6 +83,7 @@ export function PlayerProvider({ children }) {
   const [playbackRate, setPlaybackRateState] = useState(1);
   const [sleepTimer, setSleepTimerState] = useState({ mode: null, endAt: null }); // mode: null | 'end' | 'timed'
   const [sleepRemainingMins, setSleepRemainingMins] = useState(0);
+  const [downloadPrompt, setDownloadPrompt] = useState(null);
   const [toast, setToast] = useState(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [offlineStatus, setOfflineStatus] = useState({ downloadedIds: [], tracks: [], totalBytes: 0 });
@@ -1365,6 +1366,19 @@ export function PlayerProvider({ children }) {
     showToast('Cleared all offline downloads');
   }, [showToast]);
 
+  const openDownloadModal = useCallback((tracks, label = '') => {
+    const list = (Array.isArray(tracks) ? tracks : [tracks]).filter((t) => t?.videoId);
+    if (list.length === 0) return;
+    setDownloadPrompt({
+      tracks: list,
+      label: label || (list.length === 1 ? list[0]?.title : `${list.length} tracks`),
+    });
+  }, []);
+
+  const closeDownloadModal = useCallback(() => {
+    setDownloadPrompt(null);
+  }, []);
+
   const clearHistory = useCallback(async () => {
     const next = await window.sona.clearHistory();
     if (next) setLibrary(next);
@@ -1550,6 +1564,9 @@ export function PlayerProvider({ children }) {
       downloadOfflineTracks,
       deleteOfflineTracks,
       clearOfflineDownloads,
+      downloadPrompt,
+      openDownloadModal,
+      closeDownloadModal,
       playbackRate,
       sleepTimer,
       sleepRemainingMins,
@@ -1625,6 +1642,9 @@ export function PlayerProvider({ children }) {
       downloadOfflineTracks,
       deleteOfflineTracks,
       clearOfflineDownloads,
+      downloadPrompt,
+      openDownloadModal,
+      closeDownloadModal,
       playbackRate,
       sleepTimer,
       sleepRemainingMins,

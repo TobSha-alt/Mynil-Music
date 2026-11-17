@@ -14,7 +14,7 @@ export default function AlbumView({ albumId, onOpenArtist, onOpenAlbum }) {
     isOnline,
     downloadedIds,
     downloadingIds,
-    downloadOfflineTracks,
+    openDownloadModal,
     deleteOfflineTracks,
   } = usePlayer();
   const [album, setAlbum] = useState(null);
@@ -178,7 +178,7 @@ export default function AlbumView({ albumId, onOpenArtist, onOpenAlbum }) {
                       if (allDownloaded) {
                         deleteOfflineTracks(albumTracks.map((t) => t.videoId));
                       } else if (isOnline) {
-                        downloadOfflineTracks(albumTracks);
+                        openDownloadModal(albumTracks, album?.title || 'Album');
                       }
                     }}
                     disabled={anyDownloading}

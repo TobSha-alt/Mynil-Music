@@ -17,11 +17,13 @@ const offsetDetector = require('./offset');
 const updater = require('./updater');
 const importer = require('./importer');
 const discordRpc = require('./discord');
+const downloadHelper = require('./download');
 
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
+const DIST_MONO_DIR = path.join(__dirname, '..', 'dist-mono');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -278,14 +280,17 @@ async function handleStreamProxy(req, res, videoId, mode) {
 }
 
 function serveStatic(req, res, pathname) {
-  let filePath = path.join(DIST_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (!filePath.startsWith(DIST_DIR)) {
+  const isMono = pathname === '/mono' || pathname.startsWith('/mono/');
+  const baseDir = isMono && fs.existsSync(DIST_MONO_DIR) ? DIST_MONO_DIR : DIST_DIR;
+  const relPath = isMono ? pathname.replace(/^\/mono\/?/, '/') : pathname;
+  let filePath = path.join(baseDir, relPath === '/' ? 'index.html' : relPath);
+  if (!filePath.startsWith(baseDir)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
   }
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    filePath = path.join(DIST_DIR, 'index.html');
+    filePath = path.join(baseDir, 'index.html');
   }
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
@@ -841,6 +846,71 @@ async function handleApi(req, res, urlObj) {
       return sendJson(res, 200, offline.deleteTracks(ids));
     }
 
+    if (pathname === '/api/download-file' && req.method === 'GET') {
+      const videoId = searchParams.get('videoId') || '';
+      const format = searchParams.get('format') || 'mp3';
+      const title = searchParams.get('title') || '';
+      const artist = searchParams.get('artist') || '';
+      const prep = await downloadHelper.prepareTrackFile(videoId, format, { title, artist });
+      const stat = fs.statSync(prep.filePath);
+      res.writeHead(200, {
+        'Content-Type': prep.mime,
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${prep.filename.replace(/"/g, '')}"`,
+        'Access-Control-Allow-Origin': '*',
+      });
+      const stream = fs.createReadStream(prep.filePath);
+      stream.on('close', () => {
+        if (prep.cleanup) {
+          try { fs.unlinkSync(prep.filePath); } catch {}
+        }
+      });
+      stream.pipe(res);
+      return;
+    }
+
+    if (pathname === '/api/download-zip' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const tracks = (Array.isArray(body.tracks) ? body.tracks : []).filter((t) => t?.videoId).slice(0, 50);
+      const format = body.format || 'mp3';
+      const zipName = `${downloadHelper.sanitizeFilename(body.name) || 'Mynil-Playlist'}.zip`;
+      const entries = [];
+      const seenNames = new Set();
+      for (let i = 0; i < tracks.length; i += 3) {
+        const chunk = tracks.slice(i, i + 3);
+        const resChunk = await Promise.allSettled(
+          chunk.map((t) => downloadHelper.prepareTrackFile(t.videoId, format, { title: t.title, artist: t.artist }))
+        );
+        for (const r of resChunk) {
+          if (r.status !== 'fulfilled' || !r.value) continue;
+          const item = r.value;
+          try {
+            let name = item.filename;
+            let n = 2;
+            while (seenNames.has(name.toLowerCase())) {
+              const dot = item.filename.lastIndexOf('.');
+              name = `${item.filename.slice(0, dot)} (${n++})${item.filename.slice(dot)}`;
+            }
+            seenNames.add(name.toLowerCase());
+            entries.push({ name, data: fs.readFileSync(item.filePath) });
+          } finally {
+            if (item.cleanup) {
+              try { fs.unlinkSync(item.filePath); } catch {}
+            }
+          }
+        }
+      }
+      const zipBuf = downloadHelper.buildZipBuffer(entries);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': zipBuf.length,
+        'Content-Disposition': `attachment; filename="${zipName.replace(/"/g, '')}"`,
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(zipBuf);
+      return;
+    }
+
     if (pathname === '/api/offline/clear' && req.method === 'POST') {
       return sendJson(res, 200, offline.clearAll());
     }
@@ -884,7 +954,8 @@ scanner.init({ onAfterScan: () => sync.schedulePush() });
 resolver.start().catch(() => {});
 setTimeout(() => updater.checkForUpdates().catch(() => {}), 3500);
 
-const requestedPort = Number(process.env.SONA_PORT || 47921);
+const requestedPort = Number(process.env.PORT || process.env.SONA_PORT || 47921);
+const requestedHost = process.env.PORT ? '0.0.0.0' : (process.env.HOST || '127.0.0.1');
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -913,14 +984,14 @@ const server = http.createServer((req, res) => {
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE' && requestedPort !== 0) {
-    server.listen(0, '127.0.0.1');
+    server.listen(0, requestedHost);
   } else {
     console.error(err);
     process.exit(1);
   }
 });
 
-server.listen(requestedPort, '127.0.0.1', () => {
+server.listen(requestedPort, requestedHost, () => {
   const { port } = server.address();
   console.log(`SONA_READY:${port}`);
 });

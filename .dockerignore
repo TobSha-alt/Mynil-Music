@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-mono
+Mynil-win
+Mynil-mono-win
+native
+*.exe
+*.zip
+.git
+.github
+website

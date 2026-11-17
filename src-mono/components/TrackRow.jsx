@@ -28,7 +28,7 @@ export default function TrackRow({
     isOnline,
     downloadedIds,
     downloadingIds,
-    downloadOfflineTracks,
+    openDownloadModal,
     deleteOfflineTracks,
   } = usePlayer();
 
@@ -224,7 +224,7 @@ export default function TrackRow({
           onClick={() => {
             if (isDownloading) return;
             if (isDownloaded) deleteOfflineTracks([track.videoId]);
-            else downloadOfflineTracks([track]);
+            else openDownloadModal([track], track.title);
           }}
           className={`rounded-lg transition-all duration-150 active:scale-90 flex items-center justify-center ${
             isDownloaded

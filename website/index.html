@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mynil — Music &amp; Music Video Player</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090d;
+      --card: rgba(255, 255, 255, 0.04);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #10b981;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 20% 0%, rgba(16, 185, 129, 0.14), transparent 42%),
+                  radial-gradient(circle at 85% 15%, rgba(99, 102, 241, 0.12), transparent 40%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 48px 20px 80px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-radius: 999px;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      background: rgba(16, 185, 129, 0.12);
+      color: #6ee7b7; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    }
+    h1 { font-size: clamp(2rem, 5vw, 3.25rem); margin: 16px 0 12px; letter-spacing: -0.03em; }
+    .sub { color: var(--muted); max-width: 660px; font-size: 1.05rem; margin: 0 0 28px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; margin-top: 24px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 18px; padding: 22px; backdrop-filter: blur(12px);
+    }
+    .card h2 { margin: 0 0 8px; font-size: 1.15rem; }
+    .card p { margin: 0 0 16px; color: var(--muted); font-size: 0.92rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    input[type="url"] {
+      flex: 1 1 260px; padding: 11px 14px; border-radius: 12px;
+      border: 1px solid var(--border); background: rgba(0, 0, 0, 0.45);
+      color: var(--text); font-size: 0.92rem; outline: none;
+    }
+    input[type="url"]:focus { border-color: var(--accent); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 11px 18px; border-radius: 12px; border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.08); color: var(--text);
+      font-weight: 700; font-size: 0.9rem; text-decoration: none; cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.15); }
+    .btn.primary { background: var(--accent); color: #04130d; border-color: transparent; }
+    .btn.primary:hover { background: #34d399; }
+    .btn.mono { background: #ffffff; color: #09090b; border-color: transparent; }
+    .btn.mono:hover { background: #e4e4e7; }
+    .status { font-size: 0.82rem; color: var(--muted); margin-top: 10px; min-height: 1.2em; }
+    .status.ok { color: #6ee7b7; }
+    .status.err { color: #fda4af; }
+    .small { font-size: 0.82rem; color: var(--muted); }
+    code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <span class="badge">WEB APP + DESKTOP LAUNCHER</span>
+    <h1>Mynil Music &amp; Mynil Mono</h1>
+    <p class="sub">
+      Full-featured YouTube-powered music &amp; music video player with synced lyrics, offline caching,
+      device MP3/M4A/MP4/ZIP downloads, Discord Rich Presence, and cloud-synced accounts.
+    </p>
+
+    <div class="card">
+      <h2>Launch Full Web App</h2>
+      <p>
+        GitHub Pages hosts the static frontend, while a free Docker backend on Render/Railway (or your own PC)
+        powers streaming, search, downloads, and lyrics. Paste your backend URL once and launch either edition:
+      </p>
+      <div class="row">
+        <input id="backendUrl" type="url" placeholder="https://mynil-music.onrender.com (or http://127.0.0.1:47921)" />
+        <button class="btn" id="testBtn" type="button">Test &amp; Save</button>
+      </div>
+      <div class="status" id="statusMsg"></div>
+      <div class="row" style="margin-top: 14px;">
+        <a class="btn primary" id="launchMusic" href="./app/">Open Mynil Music (Web)</a>
+        <a class="btn mono" id="launchMono" href="./mono/">Open Mynil Mono (Web)</a>
+        <a class="btn" href="https://render.com/deploy?repo=https://github.com/TobSha-alt/Mynil-Music" target="_blank" rel="noreferrer">
+          Deploy Free Backend on Render
+        </a>
+      </div>
+      <p class="small" style="margin-top: 12px;">
+        Tip: If you deploy on Render with <code>render.yaml</code>, you can also open your Render URL directly —
+        it serves <code>Mynil Music</code> at <code>/</code> and <code>Mynil Mono</code> at <code>/mono/</code> with zero setup.
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Mynil Music (Desktop)</h2>
+        <p>Rich emerald &amp; album-reactive glow edition for Windows &amp; macOS.</p>
+        <div class="row">
+          <a class="btn primary" href="https://github.com/TobSha-alt/Mynil-Music/releases/latest/download/Mynil-Music-Setup-Windows.exe">Windows Installer</a>
+          <a class="btn" href="https://github.com/TobSha-alt/Mynil-Music/releases/latest/download/Mynil-Music-macOS-AppleSilicon.dmg">macOS DMG</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Mynil Mono (Desktop)</h2>
+        <p>Pure black-and-white monochrome edition for Windows &amp; macOS.</p>
+        <div class="row">
+          <a class="btn mono" href="https://github.com/TobSha-alt/Mynil-Music/releases/latest/download/Mynil-Mono-Setup-Windows.exe">Windows Installer</a>
+          <a class="btn" href="https://github.com/TobSha-alt/Mynil-Music/releases/latest/download/Mynil-Mono-macOS-AppleSilicon.dmg">macOS DMG</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY = 'mynil_backend_url';
+    const input = document.getElementById('backendUrl');
+    const statusMsg = document.getElementById('statusMsg');
+    const launchMusic = document.getElementById('launchMusic');
+    const launchMono = document.getElementById('launchMono');
+
+    const normalize = (v) => {
+      const s = String(v || '').trim().replace(/\/+$/, '');
+      if (!s) return '';
+      return /^https?:\/\//i.test(s) ? s : 'https://' + s;
+    };
+
+    const syncLinks = (url) => {
+      const q = url ? '?backend=' + encodeURIComponent(url) : '';
+      launchMusic.href = './app/' + q;
+      launchMono.href = './mono/' + q;
+    };
+
+    const saved = normalize(localStorage.getItem(KEY) || '');
+    if (saved) {
+      input.value = saved;
+      syncLinks(saved);
+    }
+
+    input.addEventListener('input', () => {
+      const u = normalize(input.value);
+      syncLinks(u);
+    });
+
+    document.getElementById('testBtn').addEventListener('click', async () => {
+      const u = normalize(input.value);
+      if (!u) {
+        localStorage.removeItem(KEY);
+        syncLinks('');
+        statusMsg.className = 'status';
+        statusMsg.textContent = 'Cleared saved backend URL.';
+        return;
+      }
+      statusMsg.className = 'status';
+      statusMsg.textContent = 'Checking ' + u + '/api/health ...';
+      try {
+        const res = await fetch(u + '/api/health');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        localStorage.setItem(KEY, u);
+        input.value = u;
+        syncLinks(u);
+        statusMsg.className = 'status ok';
+        statusMsg.textContent = 'Connected! Saved backend URL for Mynil Music and Mynil Mono.';
+      } catch (err) {
+        statusMsg.className = 'status err';
+        statusMsg.textContent = 'Could not reach backend (' + (err.message || 'network error') + ').';
+      }
+    });
+  </script>
+</body>
+</html>

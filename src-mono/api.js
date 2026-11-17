@@ -1,11 +1,50 @@
+const BACKEND_STORAGE_KEY = 'mynil_backend_url';
+
+const normalizeBackendUrl = (raw) => {
+  const s = String(raw || '').trim().replace(/\/+$/, '');
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://${s}`;
+};
+
+export const getBackendUrl = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get('backend');
+    if (fromQuery !== null) {
+      const normalized = normalizeBackendUrl(fromQuery);
+      if (normalized) localStorage.setItem(BACKEND_STORAGE_KEY, normalized);
+      else localStorage.removeItem(BACKEND_STORAGE_KEY);
+      return normalized;
+    }
+    return normalizeBackendUrl(localStorage.getItem(BACKEND_STORAGE_KEY) || '');
+  } catch {
+    return '';
+  }
+};
+
+export const setBackendUrl = (url) => {
+  const normalized = normalizeBackendUrl(url);
+  try {
+    if (normalized) localStorage.setItem(BACKEND_STORAGE_KEY, normalized);
+    else localStorage.removeItem(BACKEND_STORAGE_KEY);
+  } catch {}
+  return normalized;
+};
+
+const apiUrl = (path) => {
+  const base = getBackendUrl();
+  return base ? `${base}${path}` : path;
+};
+
 const jsonGet = async (url) => {
-  const res = await fetch(url);
+  const res = await fetch(apiUrl(url));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
 
 const jsonPost = async (url, body) => {
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
@@ -19,7 +58,9 @@ const jsonPost = async (url, body) => {
 
 if (!window.sona) {
   window.sona = {
-    getProxyBase: async () => window.location.origin,
+    getProxyBase: async () => getBackendUrl() || window.location.origin,
+    getBackendUrl,
+    setBackendUrl,
 
     suggestions: (q) => jsonGet(`/api/suggestions?q=${encodeURIComponent(q || '')}`),
     search: (q, filter = 'all') =>
@@ -97,6 +138,28 @@ if (!window.sona) {
     downloadOffline: (tracks) => jsonPost('/api/offline/download', { tracks }),
     deleteOffline: (videoIds) => jsonPost('/api/offline/delete', { videoIds }),
     clearOffline: () => jsonPost('/api/offline/clear', {}),
+    getDownloadFileUrl: (track, format = 'mp3') => {
+      const qs = new URLSearchParams({
+        videoId: track?.videoId || '',
+        format: format || 'mp3',
+        title: track?.title || 'track',
+        artist: track?.artist || '',
+      });
+      return apiUrl(`/api/download-file?${qs.toString()}`);
+    },
+    downloadZip: async (name, tracks, format = 'mp3') => {
+      const res = await fetch(apiUrl('/api/download-zip'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tracks, format }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      return blob;
+    },
     getStatsStatus: () => jsonGet('/api/stats/status'),
     scanStats: () => jsonPost('/api/stats/scan', {}),
     getUpdaterStatus: () => jsonGet('/api/updater/status'),

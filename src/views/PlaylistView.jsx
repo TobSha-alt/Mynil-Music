@@ -25,7 +25,7 @@ export default function PlaylistView({
     isOnline,
     downloadedIds,
     downloadingIds,
-    downloadOfflineTracks,
+    openDownloadModal,
     deleteOfflineTracks,
   } = usePlayer();
   const [ytmData, setYtmData] = useState(null);
@@ -122,7 +122,7 @@ export default function PlaylistView({
     if (allDownloaded) {
       deleteOfflineTracks(downloadableTracks.map((t) => t.videoId));
     } else if (isOnline) {
-      downloadOfflineTracks(downloadableTracks);
+      openDownloadModal(downloadableTracks, title || 'Playlist');
     }
   };
 
