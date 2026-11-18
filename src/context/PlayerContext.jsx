@@ -489,7 +489,24 @@ export function PlayerProvider({ children }) {
       } else if (desiredMode === 'song') {
         if (track.isVideo) {
           const song = await findCachedCounterpart(track, 'song');
-          if (song?.videoId) streamVideoId = song.videoId;
+          if (song?.videoId) {
+            streamVideoId = song.videoId;
+            if (song.thumbnail) {
+              setCurrentTrack((prev) =>
+                prev && prev.videoId === track.videoId
+                  ? {
+                      ...prev,
+                      thumbnail: song.thumbnail,
+                      album: prev.album || song.album || '',
+                      albumId: prev.albumId || song.albumId || null,
+                    }
+                  : prev
+              );
+              extractDominantColor(`${proxyBase}${getCoverUrl({ ...track, thumbnail: song.thumbnail })}`).then(
+                (rgb) => setAccentRgb(rgb)
+              );
+            }
+          }
         } else if (songOverrideCacheRef.current.has(track.videoId)) {
           streamVideoId = songOverrideCacheRef.current.get(track.videoId);
         }
@@ -568,6 +585,14 @@ export function PlayerProvider({ children }) {
         });
       };
       playWithRetry(0);
+
+      // Prewarm the opposite counterpart (Song <-> Video) so mode switching is instant
+      const oppositeKind = desiredMode === 'video' ? 'song' : 'video';
+      findCachedCounterpart(track, oppositeKind)
+        .then((opp) => {
+          if (opp?.videoId) window.sona.prewarm?.([opp.videoId]);
+        })
+        .catch(() => {});
 
       if (desiredMode === 'video' && videoRef.current) {
         const v = videoRef.current;
@@ -847,9 +872,14 @@ export function PlayerProvider({ children }) {
               if (videoOffsetCacheRef.current.has(cacheKey)) {
                 offset = videoOffsetCacheRef.current.get(cacheKey);
               } else {
-                const res = await window.sona.getVideoOffset(mvVideoId, songVideoId);
-                offset = Math.max(0, Number(res?.offsetSec || 0));
-                videoOffsetCacheRef.current.set(cacheKey, offset);
+                const res = await Promise.race([
+                  window.sona.getVideoOffset(mvVideoId, songVideoId),
+                  new Promise((resolve) => setTimeout(() => resolve(null), 1200)),
+                ]);
+                if (res) {
+                  offset = Math.max(0, Number(res?.offsetSec || 0));
+                  videoOffsetCacheRef.current.set(cacheKey, offset);
+                }
               }
             }
           } catch {}
