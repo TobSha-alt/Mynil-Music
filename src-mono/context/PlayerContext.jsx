@@ -420,6 +420,13 @@ export function PlayerProvider({ children }) {
       }
 
       const desiredMode = mode || (track.isVideo ? 'video' : 'song');
+      videoBufferingPauseRef.current = false;
+      pendingVideoSeekRef.current = null;
+      if (desiredMode !== 'video' && videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      }
       setMediaMode(desiredMode);
       setErrorMsg('');
       setIsBuffering(true);
@@ -496,7 +503,7 @@ export function PlayerProvider({ children }) {
 
         // Some YT Music album/song entries (e.g. Blur - No Distance Left to Run) link the longer
         // music video ID instead of the studio audio. Detect & swap to the clean song counterpart.
-        if (desiredMode === 'song' && !track.isVideo && !songOverrideCacheRef.current.has(track.videoId)) {
+        if (desiredMode === 'song' && !track.isVideo && !skipRecord && seekTo === 0 && !songOverrideCacheRef.current.has(track.videoId)) {
           try {
             const songHit = await findCachedCounterpart(track, 'song');
             if (songHit?.videoId && songHit.videoId !== streamVideoId) {
@@ -571,6 +578,7 @@ export function PlayerProvider({ children }) {
       } else if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.removeAttribute('src');
+        videoRef.current.load();
       }
 
       if (!skipRecord) {
@@ -793,60 +801,74 @@ export function PlayerProvider({ children }) {
     await startPlayback(prevTrack);
   }, [currentTrack, queue, queueIndex, library.preferences.repeat, seek, startPlayback]);
 
+  const switchingModeRef = useRef(false);
   const switchMediaMode = useCallback(
     async (targetMode) => {
-      if (!currentTrack || targetMode === mediaMode) return;
-      const rawTime = audioRef.current?.currentTime || 0;
+      if (!currentTrack || targetMode === mediaMode || switchingModeRef.current) return;
+      switchingModeRef.current = true;
+      try {
+        const rawTime = audioRef.current?.currentTime || 0;
+        if (targetMode === 'song' && videoRef.current) {
+          videoRef.current.pause();
+          videoRef.current.removeAttribute('src');
+          videoRef.current.load();
+          videoBufferingPauseRef.current = false;
+          pendingVideoSeekRef.current = null;
+        }
 
-      // Ensure we know the video intro offset before jumping between song and video
-      let offset = videoIntroOffset;
-      const trackKey = getTrackIdentityKey(currentTrack) || currentTrack.videoId || '';
-      const manual = libraryRef.current?.preferences?.videoIntroOffsets?.[trackKey];
-      if (manual !== undefined && manual !== null && Number.isFinite(Number(manual))) {
-        offset = Math.max(0, Number(manual));
-      } else {
-        try {
-          let mvVideoId = currentTrack.isVideo ? currentTrack.videoId : '';
-          let songVideoId = currentTrack.isVideo ? '' : currentTrack.videoId;
-          if (currentTrack.isVideo) {
-            const ck = `${currentTrack.videoId}:song`;
-            const hit = counterpartCacheRef.current.get(ck) || (await window.sona.findCounterpart(currentTrack.title, currentTrack.artist, 'song'));
-            if (hit?.videoId) {
-              counterpartCacheRef.current.set(ck, hit);
-              songVideoId = hit.videoId;
-            }
-          } else {
-            const ck = `${currentTrack.videoId}:video`;
-            const hit = counterpartCacheRef.current.get(ck) || (await window.sona.findCounterpart(currentTrack.title, currentTrack.artist, 'video'));
-            if (hit?.videoId) {
-              counterpartCacheRef.current.set(ck, hit);
-              mvVideoId = hit.videoId;
-            }
-          }
-          if (mvVideoId) {
-            const cacheKey = `${mvVideoId}:${songVideoId}`;
-            if (videoOffsetCacheRef.current.has(cacheKey)) {
-              offset = videoOffsetCacheRef.current.get(cacheKey);
+        // Ensure we know the video intro offset before jumping between song and video
+        let offset = videoIntroOffset;
+        const trackKey = getTrackIdentityKey(currentTrack) || currentTrack.videoId || '';
+        const manual = libraryRef.current?.preferences?.videoIntroOffsets?.[trackKey];
+        if (manual !== undefined && manual !== null && Number.isFinite(Number(manual))) {
+          offset = Math.max(0, Number(manual));
+        } else {
+          try {
+            let mvVideoId = currentTrack.isVideo ? currentTrack.videoId : '';
+            let songVideoId = currentTrack.isVideo ? '' : currentTrack.videoId;
+            if (currentTrack.isVideo) {
+              const ck = `${currentTrack.videoId}:song`;
+              const hit = counterpartCacheRef.current.get(ck) || (await window.sona.findCounterpart(currentTrack.title, currentTrack.artist, 'song'));
+              if (hit?.videoId) {
+                counterpartCacheRef.current.set(ck, hit);
+                songVideoId = hit.videoId;
+              }
             } else {
-              const res = await window.sona.getVideoOffset(mvVideoId, songVideoId);
-              offset = Math.max(0, Number(res?.offsetSec || 0));
-              videoOffsetCacheRef.current.set(cacheKey, offset);
+              const ck = `${currentTrack.videoId}:video`;
+              const hit = counterpartCacheRef.current.get(ck) || (await window.sona.findCounterpart(currentTrack.title, currentTrack.artist, 'video'));
+              if (hit?.videoId) {
+                counterpartCacheRef.current.set(ck, hit);
+                mvVideoId = hit.videoId;
+              }
             }
-          }
-        } catch {}
-      }
+            if (mvVideoId) {
+              const cacheKey = `${mvVideoId}:${songVideoId}`;
+              if (videoOffsetCacheRef.current.has(cacheKey)) {
+                offset = videoOffsetCacheRef.current.get(cacheKey);
+              } else {
+                const res = await window.sona.getVideoOffset(mvVideoId, songVideoId);
+                offset = Math.max(0, Number(res?.offsetSec || 0));
+                videoOffsetCacheRef.current.set(cacheKey, offset);
+              }
+            }
+          } catch {}
+        }
 
-      const resumeAt =
-        mediaMode === 'video' && targetMode === 'song'
-          ? Math.max(0, rawTime - offset)
-          : mediaMode === 'song' && targetMode === 'video'
-          ? rawTime + offset
-          : rawTime;
+        const latestTime = audioRef.current?.currentTime ?? rawTime;
+        const resumeAt =
+          mediaMode === 'video' && targetMode === 'song'
+            ? Math.max(0, latestTime - offset)
+            : mediaMode === 'song' && targetMode === 'video'
+            ? latestTime + offset
+            : latestTime;
 
-      if (targetMode === 'video') {
-        setTheaterOpen(true);
+        if (targetMode === 'video') {
+          setTheaterOpen(true);
+        }
+        await startPlayback(currentTrack, { mode: targetMode, seekTo: resumeAt, skipRecord: true });
+      } finally {
+        switchingModeRef.current = false;
       }
-      await startPlayback(currentTrack, { mode: targetMode, seekTo: resumeAt, skipRecord: true });
     },
     [currentTrack, mediaMode, videoIntroOffset, startPlayback]
   );
