@@ -119,6 +119,9 @@ export function PlayerProvider({ children }) {
   const pendingVideoSeekRef = useRef(null);
   const lastVideoSyncAtRef = useRef(0);
   const videoBufferingPauseRef = useRef(false);
+  const audioRetryCountRef = useRef(0);
+  const videoRetryCountRef = useRef(0);
+  const activeStreamIdRef = useRef(null);
   const radioFetchingRef = useRef(false);
   const toastTimerRef = useRef(null);
   const pauseFadeTimerRef = useRef(null);
@@ -420,6 +423,8 @@ export function PlayerProvider({ children }) {
       }
 
       const desiredMode = mode || (track.isVideo ? 'video' : 'song');
+      audioRetryCountRef.current = 0;
+      videoRetryCountRef.current = 0;
       videoBufferingPauseRef.current = false;
       pendingVideoSeekRef.current = null;
       if (desiredMode !== 'video' && videoRef.current) {
@@ -495,6 +500,7 @@ export function PlayerProvider({ children }) {
         }
       }
 
+      activeStreamIdRef.current = streamVideoId;
       setActiveVideoId(streamVideoId);
       setVideoIntroOffset(0);
       resolveTrackVideoOffset(track).then(async (off) => {
@@ -913,6 +919,7 @@ export function PlayerProvider({ children }) {
       }
     };
     const onPlaying = () => {
+      audioRetryCountRef.current = 0;
       videoBufferingPauseRef.current = false;
       setIsBuffering(false);
       setErrorMsg('');
@@ -980,8 +987,28 @@ export function PlayerProvider({ children }) {
       next();
     };
     const onError = () => {
+      if (!audio.src || !currentTrackRef.current?.videoId) return;
+      const trackVid = currentTrackRef.current.videoId;
+      const streamVid = activeStreamIdRef.current || trackVid;
+      if (audioRetryCountRef.current < 2 && proxyBase) {
+        audioRetryCountRef.current += 1;
+        const attempt = audioRetryCountRef.current;
+        if (audio.currentTime > 1 && pendingSeekRef.current == null) {
+          pendingSeekRef.current = audio.currentTime;
+        }
+        setIsBuffering(true);
+        setErrorMsg(`Stream interrupted — retrying (${attempt}/2)...`);
+        setTimeout(() => {
+          if (currentTrackRef.current?.videoId !== trackVid) return;
+          audio.src = `${proxyBase}/stream/${streamVid}?mode=audio&retry=${attempt}`;
+          audio.playbackRate = playbackRate;
+          audio.load();
+          audio.play().catch(() => {});
+        }, 700 * attempt);
+        return;
+      }
       setIsBuffering(false);
-      setErrorMsg('Could not play stream. Skipping or click retry.');
+      setErrorMsg('Could not play stream. Click retry or skip.');
     };
 
     audio.addEventListener('play', onPlay);
@@ -1048,11 +1075,37 @@ export function PlayerProvider({ children }) {
       lastVideoSyncAtRef.current = Date.now();
     };
 
+    const onVideoError = () => {
+      if (!v.src || mediaMode !== 'video' || !activeVideoId || !proxyBase) return;
+      if (videoRetryCountRef.current < 2) {
+        videoRetryCountRef.current += 1;
+        const attempt = videoRetryCountRef.current;
+        const targetTime = audio.currentTime || 0;
+        if (targetTime > 0.5) pendingVideoSeekRef.current = targetTime;
+        setTimeout(() => {
+          if (!videoRef.current || mediaMode !== 'video') return;
+          videoRef.current.muted = true;
+          videoRef.current.src = `${proxyBase}/stream/${activeVideoId}?mode=video&retry=${attempt}`;
+          videoRef.current.load();
+          videoRef.current.play().catch(() => {});
+        }, 700 * attempt);
+        return;
+      }
+      videoBufferingPauseRef.current = false;
+      setIsBuffering(false);
+      if (audio.paused && currentTrackRef.current) {
+        audio.play().catch(() => {});
+      }
+      setMediaMode('song');
+      showToast('Video stream unavailable — switched to Song mode');
+    };
+
     v.addEventListener('loadedmetadata', applyPendingSeek);
     v.addEventListener('canplay', onVideoReady);
     v.addEventListener('playing', onVideoReady);
     v.addEventListener('waiting', onVideoWaiting);
     v.addEventListener('seeking', onVideoSeeking);
+    v.addEventListener('error', onVideoError);
 
     return () => {
       v.removeEventListener('loadedmetadata', applyPendingSeek);
@@ -1060,6 +1113,7 @@ export function PlayerProvider({ children }) {
       v.removeEventListener('playing', onVideoReady);
       v.removeEventListener('waiting', onVideoWaiting);
       v.removeEventListener('seeking', onVideoSeeking);
+      v.removeEventListener('error', onVideoError);
       videoBufferingPauseRef.current = false;
     };
   }, [mediaMode, activeVideoId]);

@@ -211,6 +211,10 @@ class StreamResolver {
 
     const p = (async () => {
       await this.start();
+      if (!this.worker || !this.worker.stdin.writable) {
+        this.worker = null;
+        await this.start();
+      }
       return new Promise((resolve, reject) => {
         if (!this.worker || !this.worker.stdin.writable) {
           return reject(new Error('Resolver worker unavailable'));
@@ -219,7 +223,7 @@ class StreamResolver {
         const timer = setTimeout(() => {
           this.pending.delete(id);
           reject(new Error(`Timed out resolving ${videoId}`));
-        }, 18000);
+        }, 25000);
 
         this.pending.set(id, { resolve, reject, timer });
         this.worker.stdin.write(JSON.stringify({ id, videoId }) + '\n');

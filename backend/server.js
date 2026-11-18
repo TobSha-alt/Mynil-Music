@@ -192,16 +192,24 @@ async function handleStreamProxy(req, res, videoId, mode) {
       return;
     }
 
-    // For HLS (.m3u8) video streams, redirect directly so WKWebView's native HLS engine
-    // handles adaptive 720p/1080p playback with exact 1:1 duration.
+    // For HLS (.m3u8) video streams: redirect directly on macOS (WKWebView native HLS),
+    // and remux to faststart MP4 on Windows/Linux (Chromium/WebView2 doesn't play .m3u8 natively).
     if (mode === 'video' && streamInfo.isHls) {
-      res.writeHead(302, {
-        Location: streamInfo.url,
-        'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
-      });
-      res.end();
-      return;
+      if (process.platform === 'darwin') {
+        res.writeHead(302, {
+          Location: streamInfo.url,
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end();
+        return;
+      }
+      try {
+        const localVideo = await resolver.getFastVideoFile(videoId);
+        if (localVideo && fs.existsSync(localVideo)) {
+          return serveLocalFileWithRange(req, res, localVideo, 'video/mp4');
+        }
+      } catch {}
     }
 
     const targetUrl = new URL(streamInfo.url);
@@ -214,6 +222,14 @@ async function handleStreamProxy(req, res, videoId, mode) {
     };
     if (req.headers.range) upstreamHeaders['Range'] = req.headers.range;
 
+    let retried = false;
+    const retryOnce = () => {
+      if (retried || attempt > 0 || res.headersSent || res.writableEnded) return false;
+      retried = true;
+      pipeTarget(1);
+      return true;
+    };
+
     const upstreamReq = client.request(
       targetUrl,
       {
@@ -222,9 +238,10 @@ async function handleStreamProxy(req, res, videoId, mode) {
         agent,
       },
       (upstreamRes) => {
-        if (upstreamRes.statusCode === 403 && attempt === 0) {
+        const code = upstreamRes.statusCode || 200;
+        if ((code === 403 || code === 404 || code === 410 || code >= 500) && attempt === 0) {
           upstreamRes.resume();
-          pipeTarget(1);
+          retryOnce();
           return;
         }
 
@@ -241,7 +258,7 @@ async function handleStreamProxy(req, res, videoId, mode) {
           outHeaders['Content-Range'] = upstreamRes.headers['content-range'];
         }
 
-        res.writeHead(upstreamRes.statusCode || 200, outHeaders);
+        res.writeHead(code, outHeaders);
         if (req.method === 'HEAD') {
           upstreamRes.resume();
           res.end();
@@ -261,10 +278,11 @@ async function handleStreamProxy(req, res, videoId, mode) {
     });
 
     upstreamReq.setTimeout(15000, () => {
-      try { upstreamReq.destroy(); } catch {}
+      try { upstreamReq.destroy(new Error('Upstream timeout')); } catch {}
     });
 
     upstreamReq.on('error', () => {
+      if (retryOnce()) return;
       if (!res.headersSent) {
         res.writeHead(502);
         res.end('Upstream error');

@@ -12,20 +12,25 @@ _thread_local = threading.local()
 _write_lock = threading.Lock()
 
 
-def get_ydl():
-    ydl = getattr(_thread_local, "ydl", None)
+def get_ydl(client_mode="default"):
+    key = f"ydl_{client_mode}"
+    ydl = getattr(_thread_local, key, None)
     if ydl is None:
-        ydl = yt_dlp.YoutubeDL(
-            {
-                "quiet": True,
-                "no_warnings": True,
-                "skip_download": True,
-                "noplaylist": True,
-                "nocheckcertificate": True,
-                "socket_timeout": 10,
-            }
-        )
-        _thread_local.ydl = ydl
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+            "nocheckcertificate": True,
+            "socket_timeout": 12,
+            "retries": 3,
+            "fragment_retries": 3,
+            "geo_bypass": True,
+        }
+        if client_mode == "fallback":
+            opts["extractor_args"] = {"youtube": {"player_client": ["android_vr", "tv", "web"]}}
+        ydl = yt_dlp.YoutubeDL(opts)
+        setattr(_thread_local, key, ydl)
     return ydl
 
 
@@ -114,11 +119,27 @@ def pick_best_video(formats):
 
 
 def resolve_video(video_id):
-    ydl = get_ydl()
-    info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+    info = None
+    last_err = None
+    for mode in ("default", "fallback"):
+        try:
+            ydl = get_ydl(mode)
+            candidate = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            formats = (candidate or {}).get("formats") or []
+            if pick_best_audio(formats) or pick_best_video(formats):
+                info = candidate
+                break
+        except Exception as exc:
+            last_err = exc
+    if info is None:
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError(f"No playable formats found for {video_id}")
     formats = info.get("formats") or []
     audio = pick_best_audio(formats)
     video = pick_best_video(formats)
+    if not audio and not video:
+        raise RuntimeError(f"No playable audio or video formats for {video_id}")
     return {
         "videoId": video_id,
         "title": info.get("title"),
