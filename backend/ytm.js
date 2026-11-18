@@ -926,8 +926,12 @@ async function getUpNext(videoId, playlistId = null, { skipSpotifyEnrich = false
     const meta = extractArtistsAndMeta(item.longBylineText?.runs || item.shortBylineText?.runs || []);
     const dur = textFromRuns(item.lengthText?.runs);
     const thumb = pickBestThumb(item.thumbnail?.thumbnails, 544);
+    const isVideo =
+      videoType === 'MUSIC_VIDEO_TYPE_OMV' ||
+      videoType === 'MUSIC_VIDEO_TYPE_UGC' ||
+      /(?:i\.ytimg\.com|img\.youtube\.com)/i.test(thumb || '');
     tracks.push({
-      kind: 'song',
+      kind: isVideo ? 'video' : 'song',
       videoId: item.videoId,
       title,
       artist: meta.artistText || textFromRuns(item.shortBylineText?.runs).split('•')[0]?.trim() || 'Artist',
@@ -938,7 +942,7 @@ async function getUpNext(videoId, playlistId = null, { skipSpotifyEnrich = false
       duration: dur,
       durationSec: parseDurationToSec(dur),
       thumbnail: thumb,
-      isVideo: false,
+      isVideo,
     });
   }
 

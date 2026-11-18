@@ -134,8 +134,15 @@ function buildFallbackSvg(title = '', artist = '') {
   };
 }
 
+function isVideoFrameUrl(url = '') {
+  return /(?:i\.ytimg\.com|img\.youtube\.com)/i.test(String(url || ''));
+}
+
 async function resolveCover({ url = '', videoId = '', title = '', artist = '' } = {}) {
-  const cacheKey = url || (videoId ? `vid:${videoId}` : `${title}|${artist}`);
+  const preferSquareArt = (isVideoFrameUrl(url) || !url) && Boolean(title || artist);
+  const cacheKey = preferSquareArt
+    ? `sq:${stripTitleNoise(title).toLowerCase()}|${stripArtistNoise(artist).toLowerCase()}`
+    : url || (videoId ? `vid:${videoId}` : `${title}|${artist}`);
   const cached = cacheKey ? coverCache.get(cacheKey) : null;
   if (cached && cached.expires > Date.now()) {
     return { contentType: cached.contentType, buffer: cached.buffer };
@@ -146,6 +153,26 @@ async function resolveCover({ url = '', videoId = '', title = '', artist = '' } 
   }
 
   const job = (async () => {
+    // If the input URL is a letterboxed YouTube video frame (i.ytimg.com), prefer official square album art first.
+    if (preferSquareArt) {
+      const itunesUrl = await findItunesCover(title, artist);
+      if (itunesUrl) {
+        const hit = await fetchImageBuffer(itunesUrl);
+        if (hit) {
+          setCached(cacheKey, hit);
+          return hit;
+        }
+      }
+      const deezerUrl = await findDeezerCover(title, artist);
+      if (deezerUrl) {
+        const hit = await fetchImageBuffer(deezerUrl);
+        if (hit) {
+          setCached(cacheKey, hit);
+          return hit;
+        }
+      }
+    }
+
     const candidates = [];
     if (url) {
       candidates.push(url);
@@ -164,7 +191,7 @@ async function resolveCover({ url = '', videoId = '', title = '', artist = '' } 
     }
 
     // Fallback 1: Official album artwork via iTunes / Deezer
-    if (title || artist) {
+    if (!preferSquareArt && (title || artist)) {
       const itunesUrl = await findItunesCover(title, artist);
       if (itunesUrl) {
         const hit = await fetchImageBuffer(itunesUrl);

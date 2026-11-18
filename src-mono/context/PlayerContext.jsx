@@ -512,8 +512,26 @@ export function PlayerProvider({ children }) {
               );
             }
           }
-        } else if (songOverrideCacheRef.current.has(track.videoId)) {
-          streamVideoId = songOverrideCacheRef.current.get(track.videoId);
+        } else {
+          if (songOverrideCacheRef.current.has(track.videoId)) {
+            streamVideoId = songOverrideCacheRef.current.get(track.videoId);
+          }
+          if (/(?:i\.ytimg\.com|img\.youtube\.com)/i.test(track.thumbnail || '')) {
+            findCachedCounterpart(track, 'song')
+              .then((song) => {
+                if (song?.thumbnail && currentTrackRef.current?.videoId === track.videoId) {
+                  setCurrentTrack((prev) =>
+                    prev && prev.videoId === track.videoId
+                      ? { ...prev, thumbnail: song.thumbnail, album: prev.album || song.album || '' }
+                      : prev
+                  );
+                  extractDominantColor(`${proxyBase}${getCoverUrl({ ...track, thumbnail: song.thumbnail })}`).then(
+                    (rgb) => setAccentRgb(rgb)
+                  );
+                }
+              })
+              .catch(() => {});
+          }
         }
       }
 
@@ -811,7 +829,7 @@ export function PlayerProvider({ children }) {
     const nextTrack = queue[nextIdx];
     setQueueIndex(nextIdx);
     setCurrentTrack(nextTrack);
-    await startPlayback(nextTrack);
+    await startPlayback(nextTrack, { mode: mediaMode });
 
     if (queue.length - nextIdx <= 2 && library.preferences.autoplay) {
       fillRadioQueue(nextTrack, queue);
@@ -829,8 +847,8 @@ export function PlayerProvider({ children }) {
     const prevTrack = queue[prevIdx];
     setQueueIndex(prevIdx);
     setCurrentTrack(prevTrack);
-    await startPlayback(prevTrack);
-  }, [currentTrack, queue, queueIndex, library.preferences.repeat, seek, startPlayback]);
+    await startPlayback(prevTrack, { mode: mediaMode });
+  }, [currentTrack, queue, queueIndex, library.preferences.repeat, seek, mediaMode, startPlayback]);
 
   const switchingModeRef = useRef(false);
   const switchMediaMode = useCallback(
