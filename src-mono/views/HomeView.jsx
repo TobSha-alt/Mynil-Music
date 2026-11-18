@@ -15,19 +15,48 @@ const MOOD_CHIPS = [
   { label: 'Workout Energy', query: 'high energy workout hits' },
 ];
 
+const HOME_CACHE_KEY = 'mynil_home_cache_v1';
+
+const readCachedHome = () => {
+  try {
+    const raw = localStorage.getItem(HOME_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.shelves) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedHome = (patch) => {
+  try {
+    const prev = readCachedHome() || { shelves: [], mixes: [] };
+    localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ ...prev, ...patch, ts: Date.now() }));
+  } catch {}
+};
+
 export default function HomeView({ onOpenArtist, onOpenAlbum, onOpenPlaylist, onNavigate }) {
   const { library, playTrack, createPlaylist, currentTrack, isPlaying, accentRgb, showToast } = usePlayer();
-  const [shelves, setShelves] = useState([]);
-  const [sessionMixes, setSessionMixes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialCache = readCachedHome();
+  const [shelves, setShelves] = useState(() => initialCache?.shelves || []);
+  const [sessionMixes, setSessionMixes] = useState(() => initialCache?.mixes || []);
+  const [loading, setLoading] = useState(() => !(initialCache?.shelves?.length > 0));
   const [refreshingMix, setRefreshingMix] = useState(false);
   const [mixFilter, setMixFilter] = useState('all'); // 'all' | 'Popular' | 'Niche'
 
   const loadHome = (refresh = false) => {
     if (refresh) setRefreshingMix(true);
     return Promise.all([
-      window.sona.getHome(refresh).then((res) => setShelves(res?.shelves || [])),
-      window.sona.getSessionMixes?.(refresh).then((res) => setSessionMixes(res?.mixes || [])),
+      window.sona.getHome(refresh).then((res) => {
+        const next = res?.shelves || [];
+        setShelves(next);
+        if (next.length > 0) writeCachedHome({ shelves: next });
+      }),
+      window.sona.getSessionMixes?.(refresh).then((res) => {
+        const next = res?.mixes || [];
+        setSessionMixes(next);
+        writeCachedHome({ mixes: next });
+      }),
     ])
       .catch(() => {})
       .finally(() => {
@@ -41,12 +70,18 @@ export default function HomeView({ onOpenArtist, onOpenAlbum, onOpenPlaylist, on
     Promise.all([
       window.sona.getHome(false).then((res) => {
         if (!cancelled) {
-          setShelves(res?.shelves || []);
+          const next = res?.shelves || [];
+          setShelves(next);
+          if (next.length > 0) writeCachedHome({ shelves: next });
           setLoading(false);
         }
       }),
       window.sona.getSessionMixes?.(false).then((res) => {
-        if (!cancelled) setSessionMixes(res?.mixes || []);
+        if (!cancelled) {
+          const next = res?.mixes || [];
+          setSessionMixes(next);
+          writeCachedHome({ mixes: next });
+        }
       }),
     ]).catch(() => {
       if (!cancelled) setLoading(false);

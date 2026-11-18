@@ -379,7 +379,7 @@ async function resolveDeezerTracksToYtm(dzTracks, maxCount = 6) {
 
 async function enrichTracksFast(tracks) {
   if (!tracks.length) return tracks;
-  return spotify.enrichTracksWithSpotifyStreams(tracks).catch(() => tracks);
+  return spotify.enrichTracksWithSpotifyStreams(tracks, '', { timeBudgetMs: 1200 }).catch(() => tracks);
 }
 
 async function getBasedOnLastListened(history = [], { refresh = false } = {}) {
@@ -748,7 +748,7 @@ async function getMoreSongsYouMightLike(libraryState, { excludeIds = new Set(), 
     if (candidates.length >= 20) break;
   }
 
-  const enriched = await spotify.enrichTracksWithSpotifyStreams(candidates).catch(() => candidates);
+  const enriched = await spotify.enrichTracksWithSpotifyStreams(candidates, '', { timeBudgetMs: 800 }).catch(() => candidates);
   const shelves = [];
   if (enriched.length > 0) {
     shelves.push({
@@ -831,7 +831,7 @@ async function getSessionMixes(libraryState, { refresh = false } = {}) {
   }
 
   // Enrich new tracks with Spotify streams
-  const enrichedNew = await spotify.enrichTracksWithSpotifyStreams([...freshNew, ...nicheTracks], '', { timeBudgetMs: 5500 }).catch(() => [...freshNew, ...nicheTracks]);
+  const enrichedNew = await spotify.enrichTracksWithSpotifyStreams([...freshNew, ...nicheTracks], '', { timeBudgetMs: 1200 }).catch(() => [...freshNew, ...nicheTracks]);
   const finalFresh = enrichedNew.slice(0, freshNew.length);
   const finalNiche = enrichedNew.slice(freshNew.length);
 

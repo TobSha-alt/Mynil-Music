@@ -380,54 +380,84 @@ async function handleApi(req, res, urlObj) {
     if (pathname === '/api/home') {
       const refresh = searchParams.get('refresh') === '1';
       const libState = store.getAll();
-      const [result, basedOnShelf] = await Promise.all([
-        ytm.getHome(),
-        recommendations.getBasedOnLastListened(libState.history, { refresh }).catch(() => null),
-      ]);
+      const cacheKey = `${libState.history?.[0]?.videoId || 'none'}:${libState.likedSongs?.length || 0}`;
+      const now = Date.now();
+      const cached = global.__mynilHomeCache;
 
-      const excludeIds = new Set((basedOnShelf?.items || []).map((t) => t.videoId).filter(Boolean));
-      const extraShelves = await recommendations
-        .getMoreSongsYouMightLike(libState, { excludeIds, refresh })
-        .catch(() => []);
+      const buildHomePayload = async () => {
+        const [result, basedOnShelf, rawExtraShelves] = await Promise.all([
+          ytm.getHome(),
+          recommendations.getBasedOnLastListened(libState.history, { refresh }).catch(() => null),
+          recommendations.getMoreSongsYouMightLike(libState, { excludeIds: new Set(), refresh }).catch(() => []),
+        ]);
 
-      const filteredShelves = (result.shelves || []).filter(
-        (s) => !/new albums?\s*(&|and)\s*singles|trending|new music videos?|music videos/i.test(s.title || '')
-      );
-      const shelves = [
-        ...(basedOnShelf && basedOnShelf.items?.length > 0 ? [basedOnShelf] : []),
-        ...extraShelves,
-        ...filteredShelves,
-      ];
+        const excludeIds = new Set((basedOnShelf?.items || []).map((t) => t.videoId).filter(Boolean));
+        const extraShelves = (rawExtraShelves || [])
+          .map((s) => ({
+            ...s,
+            items: (s.items || []).filter((t) => !t?.videoId || !excludeIds.has(t.videoId)),
+          }))
+          .filter((s) => s.items.length > 0);
 
-      // Final pass: every track on every shelf should carry its official Spotify stream count.
-      // Already-resolved tracks come from the 30-day cache; stragglers finish in the background.
-      try {
-        const flat = [];
-        for (const s of shelves) {
-          for (const item of s.items || []) {
-            if ((item?.kind === 'song' || item?.kind === 'video' || item?.videoId) && item.title && !item.spotifyStreams) {
-              flat.push(item);
+        const filteredShelves = (result.shelves || []).filter(
+          (s) => !/new albums?\s*(&|and)\s*singles|trending|new music videos?|music videos/i.test(s.title || '')
+        );
+        const shelves = [
+          ...(basedOnShelf && basedOnShelf.items?.length > 0 ? [basedOnShelf] : []),
+          ...extraShelves,
+          ...filteredShelves,
+        ];
+
+        // Attach cached Spotify stream counts quickly (max 800ms), and warm any remaining in background.
+        try {
+          const flat = [];
+          for (const s of shelves) {
+            for (const item of s.items || []) {
+              if ((item?.kind === 'song' || item?.kind === 'video' || item?.videoId) && item.title && !item.spotifyStreams) {
+                flat.push(item);
+              }
             }
           }
-        }
-        if (flat.length > 0) {
-          const filled = await spotify.enrichTracksWithSpotifyStreams(flat, '', { timeBudgetMs: 7000 });
-          for (let i = 0; i < flat.length; i++) {
-            if (filled[i]?.spotifyStreams) flat[i].spotifyStreams = filled[i].spotifyStreams;
+          if (flat.length > 0) {
+            const filled = await spotify.enrichTracksWithSpotifyStreams(flat, '', { timeBudgetMs: 800 });
+            for (let i = 0; i < flat.length; i++) {
+              if (filled[i]?.spotifyStreams) flat[i].spotifyStreams = filled[i].spotifyStreams;
+            }
+            const missing = flat.filter((t) => !t.spotifyStreams);
+            if (missing.length > 0) {
+              spotify.enrichTracksWithSpotifyStreams(missing, '', { timeBudgetMs: 6000 }).catch(() => {});
+            }
           }
-        }
-      } catch {}
+        } catch {}
 
-      const firstTracks = [];
-      for (const s of shelves) {
-        for (const item of s.items || []) {
-          if (item.videoId) firstTracks.push(item.videoId);
+        const firstTracks = [];
+        for (const s of shelves) {
+          for (const item of s.items || []) {
+            if (item.videoId) firstTracks.push(item.videoId);
+            if (firstTracks.length >= 4) break;
+          }
           if (firstTracks.length >= 4) break;
         }
-        if (firstTracks.length >= 4) break;
+        if (firstTracks.length) resolver.prewarm(firstTracks);
+        const payload = { ...result, shelves };
+        global.__mynilHomeCache = { key: cacheKey, payload, fetchedAt: Date.now() };
+        return payload;
+      };
+
+      if (!refresh && cached && cached.key === cacheKey) {
+        const age = now - cached.fetchedAt;
+        if (age < 3 * 60 * 1000) {
+          return sendJson(res, 200, cached.payload);
+        }
+        if (age < 15 * 60 * 1000 && !global.__mynilHomeRefreshing) {
+          global.__mynilHomeRefreshing = true;
+          buildHomePayload().catch(() => {}).finally(() => { global.__mynilHomeRefreshing = false; });
+          return sendJson(res, 200, cached.payload);
+        }
       }
-      if (firstTracks.length) resolver.prewarm(firstTracks);
-      return sendJson(res, 200, { ...result, shelves });
+
+      const payload = await buildHomePayload();
+      return sendJson(res, 200, payload);
     }
 
     if (pathname === '/api/artist') {
