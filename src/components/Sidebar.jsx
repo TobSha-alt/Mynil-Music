@@ -211,13 +211,21 @@ export default function Sidebar({
       {!collapsed && library.followedArtists.length > 0 && (
         <div className="p-3.5 border-t border-white/[0.06] bg-white/[0.015]">
           <div className="flex items-center justify-between mb-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-              Following
-            </p>
-            <span className="text-[10px] font-mono text-zinc-500">{library.followedArtists.length}</span>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                Following
+              </p>
+              <span className="text-[10px] font-mono text-zinc-500">{library.followedArtists.length}</span>
+            </div>
+            <button
+              onClick={() => onNavigate({ name: 'library', tab: 'artists' })}
+              className="text-[10px] font-semibold text-zinc-400 hover:text-white transition"
+            >
+              See all
+            </button>
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-            {library.followedArtists.slice(0, 10).map((artist) => (
+          <div className="flex flex-wrap items-center gap-2 max-h-24 overflow-y-auto py-0.5 pr-0.5">
+            {library.followedArtists.map((artist) => (
               <button
                 key={artist.id}
                 onClick={() => onNavigate({ name: 'artist', id: artist.id })}

@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           npm run build
-          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o Mynil-win
+          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Version=${{ steps.ver.outputs.version }} -o Mynil-win
           & "${{ steps.inno.outputs.iscc }}" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\windows\Sona.iss
 
       - name: Build Mynil Mono (Windows)
@@ -70,10 +70,30 @@ jobs:
           Rename-Item -Path src -NewName src-color
           Rename-Item -Path src-mono -NewName src
           npm run build
-          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o MynilMono-win
+          dotnet publish native/windows/Sona.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Version=${{ steps.ver.outputs.version }} -o MynilMono-win
           & "${{ steps.inno.outputs.iscc }}" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\windows\SonaMono.iss
           Rename-Item -Path src -NewName src-mono
           Rename-Item -Path src-color -NewName src
+
+      - name: Optional Windows Code Signing
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64 -or -not $env:WINDOWS_CERT_PASSWORD) {
+            Write-Host "Skipping Windows code signing (WINDOWS_CERT_PFX_BASE64 / WINDOWS_CERT_PASSWORD secrets not set)."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if ($signtool) {
+            Get-ChildItem release/*.exe | ForEach-Object {
+              & $signtool sign /f $pfx /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName
+            }
+          }
+          Remove-Item $pfx -Force -ErrorAction SilentlyContinue
 
       - uses: actions/upload-artifact@v4
         with:

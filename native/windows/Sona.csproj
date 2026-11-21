@@ -8,6 +8,12 @@
     <AssemblyName>Mynil</AssemblyName>
     <Product>Mynil Music</Product>
     <Title>Mynil Music</Title>
+    <Company>Mynil Music</Company>
+    <Authors>Toby</Authors>
+    <Description>Mynil Music Desktop Streaming Player</Description>
+    <Copyright>Copyright (c) 2026 Mynil Music</Copyright>
+    <Version>1.0.9</Version>
+    <NeutralLanguage>en-US</NeutralLanguage>
     <ApplicationIcon>Sona.ico</ApplicationIcon>
   </PropertyGroup>
 
