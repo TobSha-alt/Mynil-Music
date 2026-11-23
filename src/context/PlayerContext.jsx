@@ -122,6 +122,8 @@ export function PlayerProvider({ children }) {
   const audioRetryCountRef = useRef(0);
   const videoRetryCountRef = useRef(0);
   const activeStreamIdRef = useRef(null);
+  const playbackSeqRef = useRef(0);
+  const loadWatchdogRef = useRef(null);
   const radioFetchingRef = useRef(false);
   const toastTimerRef = useRef(null);
   const pauseFadeTimerRef = useRef(null);
@@ -412,6 +414,13 @@ export function PlayerProvider({ children }) {
       const audio = audioRef.current;
       if (!audio) return;
 
+      const seq = ++playbackSeqRef.current;
+      if (loadWatchdogRef.current) {
+        clearTimeout(loadWatchdogRef.current);
+        loadWatchdogRef.current = null;
+      }
+      audio.pause();
+
       ensureAudioAnalyser();
       if (audioCtxRef.current?.state === 'suspended') {
         audioCtxRef.current.resume().catch(() => {});
@@ -531,6 +540,7 @@ export function PlayerProvider({ children }) {
       }
 
       activeStreamIdRef.current = streamVideoId;
+      if (playbackSeqRef.current !== seq) return;
       setActiveVideoId(streamVideoId);
       setVideoIntroOffset(0);
       resolveTrackVideoOffset(track).then(async (off) => {
@@ -586,17 +596,42 @@ export function PlayerProvider({ children }) {
 
       audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio`;
       audio.playbackRate = playbackRate;
+      audio.load();
+
+      loadWatchdogRef.current = setTimeout(() => {
+        if (playbackSeqRef.current !== seq) return;
+        if (audio.readyState < 2 && currentTrackRef.current?.videoId === track.videoId && audioRetryCountRef.current < 2) {
+          audioRetryCountRef.current += 1;
+          const attempt = audioRetryCountRef.current;
+          setErrorMsg(`Slow stream — retrying (${attempt}/2)...`);
+          audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio&retry=${attempt}`;
+          audio.playbackRate = playbackRate;
+          audio.load();
+          audio.play().catch(() => {});
+        }
+      }, 10000);
+
       const playWithRetry = (attempt = 0) => {
+        if (playbackSeqRef.current !== seq) return;
         audio.play().catch((err) => {
-          if (err?.name === 'AbortError') return;
-          if (attempt < 1 && currentTrackRef.current?.videoId === track.videoId) {
-            setErrorMsg('Stream interrupted — retrying...');
+          if (playbackSeqRef.current !== seq) return;
+          if (err?.name === 'AbortError') {
             setTimeout(() => {
-              if (currentTrackRef.current?.videoId !== track.videoId) return;
-              audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio&retry=1`;
+              if (playbackSeqRef.current === seq && audio.paused) {
+                audio.play().catch(() => {});
+              }
+            }, 150);
+            return;
+          }
+          if (attempt < 2 && currentTrackRef.current?.videoId === track.videoId) {
+            setErrorMsg(`Stream interrupted — retrying (${attempt + 1}/2)...`);
+            setTimeout(() => {
+              if (playbackSeqRef.current !== seq || currentTrackRef.current?.videoId !== track.videoId) return;
+              audio.src = `${proxyBase}/stream/${streamVideoId}?mode=audio&retry=${attempt + 1}`;
               audio.playbackRate = playbackRate;
+              audio.load();
               playWithRetry(attempt + 1);
-            }, 900);
+            }, 800 * (attempt + 1));
           } else {
             setErrorMsg('Could not play stream. Click retry or skip.');
           }
@@ -943,6 +978,10 @@ export function PlayerProvider({ children }) {
       if (!audio.paused) setIsBuffering(true);
     };
     const onCanPlay = () => {
+      if (loadWatchdogRef.current) {
+        clearTimeout(loadWatchdogRef.current);
+        loadWatchdogRef.current = null;
+      }
       setIsBuffering(false);
       setErrorMsg('');
       if (pendingSeekRef.current != null) {
@@ -962,6 +1001,10 @@ export function PlayerProvider({ children }) {
       }
     };
     const onPlaying = () => {
+      if (loadWatchdogRef.current) {
+        clearTimeout(loadWatchdogRef.current);
+        loadWatchdogRef.current = null;
+      }
       audioRetryCountRef.current = 0;
       videoBufferingPauseRef.current = false;
       setIsBuffering(false);

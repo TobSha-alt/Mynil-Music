@@ -41,7 +41,7 @@ def pick_best_audio(formats):
         if f.get("url")
         and f.get("acodec") not in (None, "none")
         and f.get("vcodec") in (None, "none")
-        and str(f.get("protocol", "")).startswith("http")
+        and str(f.get("protocol", "")) in ("https", "http")
     ]
     if not audios:
         audios = [
@@ -49,7 +49,7 @@ def pick_best_audio(formats):
             for f in formats
             if f.get("url")
             and f.get("acodec") not in (None, "none")
-            and str(f.get("protocol", "")).startswith("http")
+            and str(f.get("protocol", "")) in ("https", "http")
         ]
     if not audios:
         return None
@@ -118,10 +118,11 @@ def pick_best_video(formats):
     }
 
 
-def resolve_video(video_id):
+def resolve_video(video_id, force_fallback=False):
     info = None
     last_err = None
-    for mode in ("default", "fallback"):
+    modes = ("fallback", "default") if force_fallback else ("default", "fallback")
+    for mode in modes:
         try:
             ydl = get_ydl(mode)
             candidate = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
@@ -159,8 +160,9 @@ def emit(obj):
 def handle_request(req):
     req_id = req.get("id")
     video_id = req.get("videoId")
+    force_fallback = bool(req.get("forceFallback"))
     try:
-        data = resolve_video(video_id)
+        data = resolve_video(video_id, force_fallback=force_fallback)
         emit({"id": req_id, "ok": True, "data": data})
     except Exception as exc:
         emit({"id": req_id, "ok": False, "error": str(exc)})

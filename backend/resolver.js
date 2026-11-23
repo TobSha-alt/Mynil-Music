@@ -226,7 +226,7 @@ class StreamResolver {
         }, 25000);
 
         this.pending.set(id, { resolve, reject, timer });
-        this.worker.stdin.write(JSON.stringify({ id, videoId }) + '\n');
+        this.worker.stdin.write(JSON.stringify({ id, videoId, forceFallback: Boolean(forceRefresh) }) + '\n');
       });
     })()
       .then((data) => {
